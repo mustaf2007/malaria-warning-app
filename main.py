@@ -8,7 +8,7 @@ import json
 import streamlit as st
 from malaria_intel.analytics import answer_data_question, filter_observations, forecast_linear, latest_country_values, validate_observations, year_over_year
 from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS
-from malaria_intel.data_sources import DataSourceError, fetch_african_countries, fetch_indicator_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, fetch_owid_bundle, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series, fetch_map_wms_preview, resolve_map_wms_layer
+from malaria_intel.data_sources import DataSourceError, fetch_african_countries, fetch_indicator_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, fetch_owid_bundle, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series, fetch_map_wms_preview, resolve_map_wms_layer, map_wms_time_for_year
 
 st.set_page_config(page_title=APP_NAME, page_icon="🦟", layout="wide", initial_sidebar_state="expanded")
 THEMES = {
@@ -315,41 +315,47 @@ elif nav == "MAP 5 km Raster Explorer":
             }
             available_rasters = {
                 key: (raster_catalogue[key], str(raster_refs.get(key, "")).strip())
-                for key in raster_catalogue
-                if raster_refs.get(key)
+                for key in raster_catalogue if raster_refs.get(key)
             }
             if not available_rasters:
                 st.warning("The selected MAP release does not advertise supported raster layers.")
             else:
                 selected_raster_key = st.selectbox(
-                    "Raster layer",
-                    list(available_rasters),
+                    "Raster layer", list(available_rasters),
                     format_func=lambda key: available_rasters[key][0],
                     key="map_raster_metric",
                 )
                 raster_label, raster_layer_ref = available_rasters[selected_raster_key]
-                max_raster_year = int(raster_release.get("data_end_year") or 2025)
-                if max_raster_year < 2000:
-                    st.warning("The selected release does not advertise a usable raster year range.")
-                else:
-                    raster_year = st.slider(
-                        "Reference year", min_value=2000, max_value=max_raster_year,
-                        value=max_raster_year, key="map_raster_year",
-                    )
+                try:
+                    layer_info = map_wms_layer(raster_layer_ref)
+                except Exception as exc:
+                    st.error(f"MAP raster catalogue could not resolve this layer: {exc}")
+                    layer_info = None
+                if layer_info:
+                    min_year = layer_info.get("min_year")
+                    max_year = layer_info.get("max_year")
+                    if min_year is not None and max_year is not None:
+                        year_value = st.slider(
+                            "Reference year", min_value=int(min_year), max_value=int(max_year),
+                            value=int(max_year), key="map_raster_year",
+                        )
+                    else:
+                        year_value = None
+                        st.caption("This raster is static; no year selector is available.")
                     if raster_release.get("provisional"):
                         st.warning("This MAP release is provisional. Confirm the release status before citing its estimates.")
                     if st.button("Render 5 km spatial layer", type="primary"):
                         try:
-                            with st.spinner("Resolving the published MAP raster layer and loading map tiles…"):
-                                layer_info = map_wms_layer(raster_layer_ref)
-                                preview = map_raster_preview(raster_layer_ref, raster_year)
+                            with st.spinner("Loading the MAP raster preview and resolving its published time dimension…"):
+                                preview = map_raster_preview(raster_layer_ref, year_value)
                                 st.session_state.map_raster_context = {
                                     "release": raster_release["version"],
-                                    "year": raster_year,
+                                    "year": year_value,
                                     "metric": raster_label,
                                     "layer_ref": raster_layer_ref,
                                     "wms_endpoint": layer_info["endpoint"],
                                     "wms_layer": layer_info["layer"],
+                                    "wms_time": map_wms_time_for_year(layer_info, year_value),
                                     "provisional": raster_release.get("provisional", False),
                                 }
                                 st.session_state.map_raster_png = preview
@@ -359,10 +365,12 @@ elif nav == "MAP 5 km Raster Explorer":
                     raster_context = st.session_state.get("map_raster_context")
                     if raster_png and raster_context:
                         st.markdown("#### Africa · modelled raster surface")
-                        st.caption(f"{raster_context['metric']} · {raster_context['year']} · MAP release {raster_context['release']}")
+                        selected_year_label = str(raster_context["year"]) if raster_context["year"] is not None else "Static layer"
+                        st.caption(f"{raster_context['metric']} · {selected_year_label} · MAP release {raster_context['release']}")
                         layer_json = json.dumps(raster_context["wms_layer"])
                         endpoint_json = json.dumps(raster_context["wms_endpoint"])
-                        year_json = json.dumps(f"{raster_context['year']}-01-01T00:00:00Z")
+                        time_json = json.dumps(raster_context["wms_time"])
+                        time_option = f", time:{time_json}" if raster_context["wms_time"] else ""
                         html = f"""
                         <div id="ami-map" style="height:650px;width:100%;border-radius:14px;overflow:hidden;"></div>
                         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -375,7 +383,7 @@ elif nav == "MAP 5 km Raster Explorer":
                           }}).addTo(map);
                           const wms = L.tileLayer.wms({endpoint_json}, {{
                             layers: {layer_json}, format:'image/png', transparent:true,
-                            version:'1.1.1', srs:'EPSG:4326', time:{year_json},
+                            version:'1.1.1', srs:'EPSG:4326'{time_option},
                             opacity:0.78, attribution:'Malaria Atlas Project (CC BY 3.0)'
                           }}).addTo(map);
                           map.fitBounds([[-35,-18],[38,52]]);
@@ -387,13 +395,12 @@ elif nav == "MAP 5 km Raster Explorer":
                         st.components.v1.html(html, height=670, scrolling=False)
                         st.download_button(
                             "Download rendered MAP raster preview · PNG",
-                            raster_png, f"map_{raster_context['release']}_{raster_context['year']}.png",
+                            raster_png,
+                            f"map_{raster_context['release']}_{raster_context['year'] or 'static'}.png",
                             "image/png",
                         )
                         st.caption("The interactive map uses MAP's WMS raster service and OpenStreetMap base tiles. Display resolution depends on map zoom and screen size; the source raster is the MAP high-resolution product.")
                         st.markdown("**Attribution:** Malaria Atlas Project, selected raster layer and release. MAP maps are available under CC BY 3.0; retain dataset-specific citation details and identify adaptations. OpenStreetMap contributors provide the basemap.")
-    except Exception as exc:
-        st.error(f"MAP raster catalogue unavailable: {exc}")
 
 elif nav == "Forecasting & Risk Analysis":
     st.subheader("Exploratory trend modelling")
