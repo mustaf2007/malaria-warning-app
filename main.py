@@ -7,7 +7,7 @@ import plotly.express as px
 import streamlit as st
 from malaria_intel.analytics import answer_data_question, filter_observations, forecast_linear, latest_country_values, validate_observations, year_over_year
 from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS
-from malaria_intel.data_sources import DataSourceError, fetch_african_countries, fetch_indicator_bundle, discover_who_malaria_indicators
+from malaria_intel.data_sources import DataSourceError, fetch_african_countries, fetch_indicator_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator
 
 st.set_page_config(page_title=APP_NAME, page_icon="🦟", layout="wide", initial_sidebar_state="expanded")
 THEMES = {
@@ -66,6 +66,10 @@ with st.spinner("Connecting to public open-data sources…"):
         countries, rows, statuses, load_error = [], [], [], str(exc)
 country_names = {c["iso3"]:c["name"] for c in countries}
 raw = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["iso3","country","year","indicator_code","value","source","source_url"])
+if countries and not raw.empty:
+    raw = raw[raw["iso3"].isin(country_names)].copy()
+if st.session_state.get("who_rows"):
+    raw = pd.concat([raw, pd.DataFrame(st.session_state.who_rows)], ignore_index=True)
 with st.sidebar:
     st.markdown("### Analysis filters")
     iso_options = [c["iso3"] for c in countries] or sorted(raw.get("iso3",pd.Series(dtype=str)).dropna().unique())
@@ -232,9 +236,20 @@ elif nav == "Data Quality & Sources":
     st.markdown("#### WHO GHO malaria indicator discovery")
     if st.button("Discover WHO malaria indicators"):
         try:
-            catalogue=who_catalogue()
-            st.dataframe(pd.DataFrame(catalogue),use_container_width=True,hide_index=True) if catalogue else st.info("No matching indicator metadata returned.")
+            st.session_state.who_catalogue = who_catalogue()
         except DataSourceError as exc: st.error(f"WHO GHO unavailable: {exc}")
+    catalogue = st.session_state.get("who_catalogue", [])
+    if catalogue:
+        st.dataframe(pd.DataFrame(catalogue),use_container_width=True,hide_index=True)
+        chosen = st.selectbox("WHO GHO indicator to retrieve", catalogue, format_func=lambda x: f"{x['name']} ({x['code']})", key="who_indicator_choice")
+        if st.button("Fetch selected WHO indicator observations"):
+            try:
+                who_rows = fetch_who_gho_indicator(chosen["code"])
+                africa_codes = set(country_names)
+                who_rows = [r for r in who_rows if r["iso3"] in africa_codes]
+                st.session_state.who_rows = who_rows
+                st.success(f"Retrieved {len(who_rows):,} WHO observations for African countries. Revisit this workspace to include them in the analytical views.")
+            except Exception as exc: st.error(f"WHO indicator retrieval failed: {exc}")
     st.markdown("#### Interpretation safeguards")
     st.markdown("- Modelled estimates, reported counts and contextual health indicators are not interchangeable.\n- Latest years may differ across countries.\n- Missing values are not zero.\n- Country-level statistics do not establish subnational outbreak conditions.\n- This is a research and programme-intelligence tool, not a diagnostic or treatment system.")
     st.caption(f"Rendered {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}. Cached public observations may be up to 24 hours old.")
