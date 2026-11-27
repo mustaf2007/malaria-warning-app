@@ -20,7 +20,7 @@ THEMES = {
  "Light": ("#F4F7F8","#FFFFFF","#087F69","#172B2A","#617472"),
  "Dark": ("#101418","#1B242B","#5ED6C0","#F1F5F4","#AAB8B5"),
 }
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=900, show_spinner=False)
 def load_data(start, end):
     # Each provider is isolated: a temporary outage must not discard data from other sources.
     return fetch_dashboard_bundle(start, end)
