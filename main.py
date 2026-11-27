@@ -765,7 +765,7 @@ elif nav == "Data Quality & Sources":
         else:
             st.info("No non-missing country-indicator observations are available for the coverage matrix.")
         st.markdown("#### Source-level observation recency and missingness")
-    st.caption("Years since latest observation measures the age of the newest data point, not when the provider last updated its catalogue or API. Connector status reflects the latest fetch attempt; provider publication dates are shown only when supplied by the source.")
+        st.caption("Years since latest observation measures the age of the newest data point, not when the provider last updated its catalogue or API. Connector status reflects the latest fetch attempt; provider publication dates are shown only when supplied by the source.")
         source_table = quality_tables["sources"].rename(columns={
             "source":"Source", "rows_received":"Rows received",
             "non_missing_values":"Non-missing", "missing_values":"Missing",
