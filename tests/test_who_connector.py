@@ -116,3 +116,57 @@ def test_who_odata_reader_fails_instead_of_silently_truncating(monkeypatch):
     monkeypatch.setattr(data_sources, "_get_json", fake_get_json)
     with pytest.raises(data_sources.DataSourceError, match="safety limit"):
         data_sources._get_odata_rows(f"{data_sources.WHO_GHO_BASE}/Indicator")
+
+
+def test_who_odata_reader_rejects_nonstandard_initial_port(monkeypatch):
+    import pytest
+
+    def should_not_fetch(*args, **kwargs):
+        raise AssertionError("Invalid initial URL must be rejected before HTTP")
+
+    monkeypatch.setattr(data_sources, "_get_json", should_not_fetch)
+    with pytest.raises(data_sources.DataSourceError, match="official HTTPS API host and port"):
+        data_sources._get_odata_rows("https://ghoapi.azureedge.net:444/api/Indicator")
+
+
+def test_who_odata_reader_accepts_relative_same_host_next_link(monkeypatch):
+    requested = []
+
+    def fake_get_json(url, params=None):
+        requested.append((url, params))
+        if len(requested) == 1:
+            return {"value": [{"id": 1}], "@odata.nextLink": "?$skip=1000"}
+        return {"value": [{"id": 2}]}
+
+    monkeypatch.setattr(data_sources, "_get_json", fake_get_json)
+    rows = data_sources._get_odata_rows(f"{data_sources.WHO_GHO_BASE}/Indicator")
+
+    assert rows == [{"id": 1}, {"id": 2}]
+    assert requested[1][0] == f"{data_sources.WHO_GHO_BASE}/Indicator?$skip=1000"
+    assert requested[1][1] is None
+
+
+def test_get_json_retries_transient_http_failure(monkeypatch):
+    calls = []
+    responses = [data_sources.requests.ConnectionError("temporary outage"), {"ok": True}]
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        calls.append(url)
+        result = responses.pop(0)
+        if isinstance(result, Exception):
+            raise result
+
+        class Response:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return result
+
+        return Response()
+
+    monkeypatch.setattr(data_sources.requests, "get", fake_get)
+    monkeypatch.setattr(data_sources.time, "sleep", lambda *_: None)
+
+    assert data_sources._get_json("https://example.org/data") == {"ok": True}
+    assert len(calls) == 2

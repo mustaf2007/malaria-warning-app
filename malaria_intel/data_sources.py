@@ -35,8 +35,18 @@ def _get_odata_rows(url: str, params: dict[str, Any] | None = None) -> list[dict
     """Read WHO OData pages safely; reject malformed, off-host, or truncated results."""
     expected_host = urlsplit(WHO_GHO_BASE).hostname
     initial = urlsplit(url)
-    if initial.scheme != "https" or initial.hostname != expected_host or initial.username or initial.password:
-        raise DataSourceError("WHO OData request must use the official HTTPS API host.")
+    try:
+        initial_port = initial.port
+    except ValueError as exc:
+        raise DataSourceError("WHO OData request has an invalid API port.") from exc
+    if (
+        initial.scheme != "https"
+        or initial.hostname != expected_host
+        or initial_port not in (None, 443)
+        or initial.username
+        or initial.password
+    ):
+        raise DataSourceError("WHO OData request must use the official HTTPS API host and port.")
 
     def read_page(payload: Any) -> tuple[list[dict[str, Any]], str | None]:
         if not isinstance(payload, dict):
