@@ -8,7 +8,7 @@ import json
 import streamlit as st
 from malaria_intel.analytics import answer_data_question, filter_observations, forecast_linear, latest_country_values, validate_observations, year_over_year
 from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS
-from malaria_intel.data_sources import DataSourceError, fetch_african_countries, fetch_indicator_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, fetch_owid_bundle, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series, fetch_map_wms_preview
+from malaria_intel.data_sources import DataSourceError, fetch_african_countries, fetch_indicator_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, fetch_owid_bundle, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series, fetch_map_wms_preview, resolve_map_wms_layer
 
 st.set_page_config(page_title=APP_NAME, page_icon="🦟", layout="wide", initial_sidebar_state="expanded")
 THEMES = {
@@ -38,6 +38,9 @@ def map_series(metric, version, level, iso3, admin_id, stat):
 @st.cache_data(ttl=86400, show_spinner=False)
 def map_raster_preview(layer_ref, year):
     return fetch_map_wms_preview(layer_ref, int(year))
+@st.cache_data(ttl=86400, show_spinner=False)
+def map_wms_layer(layer_ref):
+    return resolve_map_wms_layer(layer_ref)
 def label(code):
     x = next((i for i in INDICATORS if i.code == code), None)
     return f"{x.name} · {x.unit}" if x else EXTERNAL_INDICATOR_LABELS.get(code, code)
@@ -61,7 +64,7 @@ with st.sidebar:
     theme_name = st.selectbox("Appearance", list(THEMES))
     bg,panel,accent,fg,muted = THEMES[theme_name]
     if st.button("↻ Refresh public data", use_container_width=True):
-        load_data.clear(); who_catalogue.clear(); map_releases.clear(); map_admin_units.clear(); map_series.clear(); map_raster_preview.clear(); st.rerun()
+        load_data.clear(); who_catalogue.clear(); map_releases.clear(); map_admin_units.clear(); map_series.clear(); map_raster_preview.clear(); map_wms_layer.clear(); st.rerun()
     st.caption("Public sources cached for 24 hours.")
 st.markdown(f"""<style>
 .stApp{{background:{bg};color:{fg}}}[data-testid="stSidebar"]{{background:{panel}}}
@@ -338,12 +341,15 @@ elif nav == "MAP 5 km Raster Explorer":
                     if st.button("Render 5 km spatial layer", type="primary"):
                         try:
                             with st.spinner("Resolving the published MAP raster layer and loading map tiles…"):
+                                layer_info = map_wms_layer(raster_layer_ref)
                                 preview = map_raster_preview(raster_layer_ref, raster_year)
                                 st.session_state.map_raster_context = {
                                     "release": raster_release["version"],
                                     "year": raster_year,
                                     "metric": raster_label,
                                     "layer_ref": raster_layer_ref,
+                                    "wms_endpoint": layer_info["endpoint"],
+                                    "wms_layer": layer_info["layer"],
                                     "provisional": raster_release.get("provisional", False),
                                 }
                                 st.session_state.map_raster_png = preview
@@ -354,7 +360,8 @@ elif nav == "MAP 5 km Raster Explorer":
                     if raster_png and raster_context:
                         st.markdown("#### Africa · modelled raster surface")
                         st.caption(f"{raster_context['metric']} · {raster_context['year']} · MAP release {raster_context['release']}")
-                        layer_json = json.dumps(raster_context["layer_ref"])
+                        layer_json = json.dumps(raster_context["wms_layer"])
+                        endpoint_json = json.dumps(raster_context["wms_endpoint"])
                         year_json = json.dumps(f"{raster_context['year']}-01-01T00:00:00Z")
                         html = f"""
                         <div id="ami-map" style="height:650px;width:100%;border-radius:14px;overflow:hidden;"></div>
@@ -363,16 +370,16 @@ elif nav == "MAP 5 km Raster Explorer":
                         <script>
                         (function(){{
                           const map = L.map('ami-map',{{scrollWheelZoom:true,preferCanvas:true}});
-                          L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+                          const osm = L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
                             maxZoom: 9, attribution: '&copy; OpenStreetMap contributors'
                           }}).addTo(map);
-                          const wms = L.tileLayer.wms('https://data.malariaatlas.org/geoserver/' + {json.dumps(raster_context['layer_ref'].split('__',1)[0] if '__' in raster_context['layer_ref'] else raster_context['layer_ref'].split(':',1)[0])} + '/ows', {{
+                          const wms = L.tileLayer.wms({endpoint_json}, {{
                             layers: {layer_json}, format:'image/png', transparent:true,
                             version:'1.1.1', srs:'EPSG:4326', time:{year_json},
                             opacity:0.78, attribution:'Malaria Atlas Project (CC BY 3.0)'
                           }}).addTo(map);
                           map.fitBounds([[-35,-18],[38,52]]);
-                          L.control.layers({{'OpenStreetMap':map._layers[Object.keys(map._layers)[0]]}},{{'MAP malaria raster':wms}}).addTo(map);
+                          L.control.layers({{'OpenStreetMap':osm}},{{'MAP malaria raster':wms}}).addTo(map);
                           L.control.scale({{imperial:false}}).addTo(map);
                         }})();
                         </script>
