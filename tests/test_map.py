@@ -72,7 +72,7 @@ def test_map_jsonstat_supports_array_category_indexes():
 
 def test_resolve_map_wms_layer_matches_release_reference(monkeypatch):
     class Response:
-        content = b'<WMS_Capabilities><Capability><Layer><Layer><Name>Malaria:202508_Global_Pf_Incidence_Rate</Name></Layer></Layer></Capability></WMS_Capabilities>'
+        content = b'<WMS_Capabilities><Capability><Layer><Layer><Name>Malaria:202508_Global_Pf_Incidence_Rate</Name><Dimension name="time" units="ISO8601">2000-01-01T00:00:00.000Z/2025-01-01T00:00:00.000Z/P1Y</Dimension></Layer></Layer></Capability></WMS_Capabilities>'
         def raise_for_status(self):
             pass
     captured={}
@@ -97,7 +97,7 @@ def test_resolve_map_wms_layer_rejects_unadvertised_layer(monkeypatch):
 def test_map_wms_preview_checks_image_and_requests_selected_year(monkeypatch):
     png=bytes([137,80,78,71,13,10,26,10]) + b"test-image"
     class Capabilities:
-        content=b'<WMS_Capabilities><Capability><Layer><Name>Malaria:202508_Global_Pf_Incidence_Rate</Name></Layer></Capability></WMS_Capabilities>'
+        content=b'<WMS_Capabilities><Capability><Layer><Name>Malaria:202508_Global_Pf_Incidence_Rate</Name><Dimension name="time" units="ISO8601">2000-01-01T00:00:00.000Z/2025-01-01T00:00:00.000Z/P1Y</Dimension></Layer></Capability></WMS_Capabilities>'
         headers={"Content-Type":"text/xml"}
         def raise_for_status(self):
             pass
@@ -113,12 +113,12 @@ def test_map_wms_preview_checks_image_and_requests_selected_year(monkeypatch):
     monkeypatch.setattr(data_sources.requests,"get",fake_get)
     result=data_sources.fetch_map_wms_preview("Malaria__202508_Global_Pf_Incidence_Rate",2024)
     assert result==png
-    assert calls[1][1]["time"]=="2024-01-01T00:00:00Z"
+    assert calls[1][1]["time"]=="2024-01-01T00:00:00.000Z"
     assert calls[1][1]["layers"]=="Malaria:202508_Global_Pf_Incidence_Rate"
 
 def test_map_wms_preview_rejects_html_error(monkeypatch):
     class Capabilities:
-        content=b'<WMS_Capabilities><Capability><Layer><Name>Malaria:202508_Global_Pf_Incidence_Rate</Name></Layer></Capability></WMS_Capabilities>'
+        content=b'<WMS_Capabilities><Capability><Layer><Name>Malaria:202508_Global_Pf_Incidence_Rate</Name><Dimension name="time" units="ISO8601">2000-01-01T00:00:00.000Z/2025-01-01T00:00:00.000Z/P1Y</Dimension></Layer></Capability></WMS_Capabilities>'
         headers={"Content-Type":"text/xml"}
         def raise_for_status(self):
             pass
@@ -135,3 +135,32 @@ def test_map_wms_preview_rejects_html_error(monkeypatch):
     monkeypatch.setattr(data_sources.requests,"get",fake_get)
     with pytest.raises(data_sources.DataSourceError,match="did not return a PNG"):
         data_sources.fetch_map_wms_preview("Malaria__202508_Global_Pf_Incidence_Rate",2024)
+
+
+def test_map_wms_layer_reads_published_time_range(monkeypatch):
+    class Response:
+        content=b'<WMS_Capabilities><Capability><Layer><Layer><Name>Malaria:layer_a</Name><Dimension name="time">2001-01-01T00:00:00.000Z/2023-01-01T00:00:00.000Z/P1Y</Dimension></Layer></Layer></Capability></WMS_Capabilities>'
+        def raise_for_status(self):
+            pass
+    monkeypatch.setattr(data_sources.requests,"get",lambda *args,**kwargs:Response())
+    info=data_sources.resolve_map_wms_layer("Malaria__layer_a")
+    assert info["min_year"]==2001
+    assert info["max_year"]==2023
+    assert data_sources.map_wms_time_for_year(info,2015)=="2015-01-01T00:00:00.000Z"
+
+def test_map_wms_layer_preserves_exact_advertised_time(monkeypatch):
+    class Response:
+        content=b'<WMS_Capabilities><Capability><Layer><Layer><Name>Malaria:layer_a</Name><Dimension name="time">2019-01-01T00:00:00.000Z,2021-01-01T00:00:00.000Z</Dimension></Layer></Layer></Capability></WMS_Capabilities>'
+        def raise_for_status(self):
+            pass
+    monkeypatch.setattr(data_sources.requests,"get",lambda *args,**kwargs:Response())
+    info=data_sources.resolve_map_wms_layer("Malaria__layer_a")
+    assert data_sources.map_wms_time_for_year(info,2021)=="2021-01-01T00:00:00.000Z"
+    with pytest.raises(ValueError,match="not available"):
+        data_sources.map_wms_time_for_year(info,2020)
+
+def test_static_map_raster_does_not_accept_year():
+    info={"time_values":None,"min_year":None,"max_year":None}
+    assert data_sources.map_wms_time_for_year(info,None) is None
+    with pytest.raises(ValueError,match="static"):
+        data_sources.map_wms_time_for_year(info,2020)
