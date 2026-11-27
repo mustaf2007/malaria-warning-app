@@ -299,3 +299,37 @@ def answer_data_question(frame: pd.DataFrame, question: str, country_names: dict
     if any(term in q for term in ("average", "mean")):
         return f"The mean of {len(data)} non-missing observations for {matched} is {data['value'].mean():,.3g}. This pools country-years and should not be interpreted as a population-weighted continental rate."
     return f"For {matched}, {len(data)} non-missing observations are loaded across {data['iso3'].nunique()} countries and {data['year'].nunique()} years. The latest reference year in this indicator is {int(data['year'].max())}. Ask for a country, highest values, or average to narrow the analysis."
+
+
+
+def prepare_who_observations(
+    rows: list[dict],
+    country_names: dict[str, str],
+) -> list[dict]:
+    """Normalize selected WHO rows to known African ISO3 codes and display names."""
+    prepared = []
+    allowed = {str(code).strip().upper(): str(name) for code, name in country_names.items()}
+    for item in rows or []:
+        iso3 = str(item.get("iso3") or "").strip().upper()
+        if iso3 not in allowed:
+            continue
+        try:
+            year_value = float(item.get("year"))
+            if not year_value.is_integer():
+                continue
+            year = int(year_value)
+        except (TypeError, ValueError):
+            continue
+        raw_value = item.get("value")
+        try:
+            value = float(raw_value) if raw_value is not None else None
+        except (TypeError, ValueError):
+            value = None
+        prepared.append({
+            **item,
+            "iso3": iso3,
+            "country": allowed[iso3],
+            "year": year,
+            "value": value,
+        })
+    return prepared
