@@ -10,6 +10,7 @@ from malaria_intel.analytics import answer_data_question, filter_observations, f
 from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS
 from malaria_intel.data_sources import DataSourceError, fetch_african_countries, fetch_indicator_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, fetch_owid_bundle, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series, fetch_map_wms_preview, resolve_map_wms_layer, map_wms_time_for_year
 from malaria_intel.spatial import fetch_country_boundary, fetch_admin1_boundaries, join_admin1_estimates_to_geojson
+from malaria_intel.reports import build_country_report_pdf
 
 st.set_page_config(page_title=APP_NAME, page_icon="🦟", layout="wide", initial_sidebar_state="expanded")
 THEMES = {
@@ -534,8 +535,58 @@ elif nav == "AI Malaria Analyst":
 
 elif nav == "Reports & Downloads":
     st.subheader("Reports and data exports")
-    if raw.empty: st.info("No observations available to export.")
+    if raw.empty:
+        st.info("No observations available to export.")
     else:
+        st.markdown("#### Country intelligence report")
+        st.caption("Generate a source-aware PDF from the currently loaded observations. The report includes indicator summaries, historical trend charts, source coverage and interpretation safeguards.")
+        report_countries = sorted(raw["iso3"].dropna().astype(str).str.upper().unique())
+        default_report_iso = "SOM" if "SOM" in report_countries else report_countries[0]
+        report_iso = st.selectbox(
+            "Report country", report_countries,
+            index=report_countries.index(default_report_iso),
+            format_func=lambda x: f"{country_names.get(x, x)} ({x})",
+            key="country_report_iso",
+        )
+        country_years = pd.to_numeric(raw.loc[raw["iso3"].astype(str).str.upper() == report_iso, "year"], errors="coerce").dropna()
+        if country_years.empty:
+            st.warning("No usable reference years are available for this country.")
+        else:
+            report_min, report_max = int(country_years.min()), int(country_years.max())
+            suggested_start = max(report_min, min(int(year_range[0]), report_max))
+            suggested_end = max(suggested_start, min(int(year_range[1]), report_max))
+            report_period = st.slider(
+                "Report reference period", report_min, report_max,
+                (suggested_start, suggested_end), key="country_report_period",
+            ) if report_min < report_max else (report_min, report_max)
+            report_key = (report_iso, report_period[0], report_period[1])
+            if st.button("Generate country PDF report", type="primary", key="generate_country_report"):
+                try:
+                    with st.spinner("Building country report and trend charts…"):
+                        country_data = raw[
+                            raw["iso3"].astype(str).str.upper().eq(report_iso)
+                            & pd.to_numeric(raw["year"], errors="coerce").between(report_period[0], report_period[1])
+                        ].copy()
+                        pdf = build_country_report_pdf(
+                            country_data, report_iso, country_names.get(report_iso, report_iso),
+                            report_period[0], report_period[1],
+                        )
+                        st.session_state["country_report_pdf"] = pdf
+                        st.session_state["country_report_key"] = report_key
+                    st.success("Country report generated.")
+                except Exception as exc:
+                    st.session_state.pop("country_report_pdf", None)
+                    st.session_state.pop("country_report_key", None)
+                    st.error(f"Country report could not be generated: {exc}")
+            if st.session_state.get("country_report_key") == report_key and st.session_state.get("country_report_pdf"):
+                st.download_button(
+                    "Download country intelligence report · PDF",
+                    st.session_state["country_report_pdf"],
+                    f"{report_iso.lower()}_malaria_intelligence_{report_period[0]}_{report_period[1]}.pdf",
+                    "application/pdf", use_container_width=True,
+                )
+        st.divider()
+        st.markdown("#### Dataset exports")
         export=filter_observations(raw,countries=selected_iso or None,start_year=year_range[0],end_year=year_range[1])
         st.metric("Rows in current export",f"{len(export):,}")
         st.dataframe(export.head(1000),use_container_width=True,hide_index=True)
