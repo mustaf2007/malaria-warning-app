@@ -100,7 +100,7 @@ nav = st.sidebar.radio("WORKSPACES", [
  "Reports & Downloads","Data Quality & Sources"])
 view = filter_observations(raw,countries=selected_iso or None,start_year=year_range[0],end_year=year_range[1]) if not raw.empty else raw
 codes = sorted(raw["indicator_code"].dropna().unique()) if not raw.empty else []
-malaria_codes = [c for c in codes if c.startswith("SH.MLR")]
+malaria_codes = [c for c in codes if c.startswith("SH.MLR") or c == "SH.STA.MALR"]
 default_code = next((c for c in ["SH.MLR.INCD.P3","SH.MLR.CASES","SH.MLR.DEATHS","SH.MLR.MORT"] if c in codes), codes[0] if codes else None)
 
 if nav == "Executive Overview":
@@ -170,7 +170,7 @@ elif nav == "Spatial Intelligence":
 
 elif nav == "Prevention & Health Systems":
     st.subheader("Prevention, vulnerability and health systems")
-    groups={"Prevention":["SH.MLR.NETS.ZS"],"Population & vulnerability":["SP.POP.TOTL","SP.POP.0014.TO.ZS","SH.DYN.MORT"],"Health systems & financing":["SH.XPD.CHEX.GD.ZS","SH.XPD.CHEX.PC.CD"]}
+    groups={"Treatment & prevention":["SH.MLR.TRET.ZS"],"Population & vulnerability":["SP.POP.TOTL","SP.POP.0014.TO.ZS","SH.DYN.MORT"],"Health systems & financing":["SH.XPD.CHEX.GD.ZS","SH.XPD.CHEX.PC.CD"]}
     for group,items in groups.items():
         st.markdown(f"#### {group}")
         available=[x for x in items if x in codes]
