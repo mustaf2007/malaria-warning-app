@@ -29,6 +29,12 @@ INDICATORS = [
     Indicator("SP.DYN.LE00.IN", "Life expectancy", "Life expectancy at birth, total years.", "years", "Population"),
 ]
 INDICATOR_BY_CODE = {item.code: item for item in INDICATORS}
+OWID_DATASETS = {
+    "number-of-deaths-from-malaria-ghe": "Estimated malaria deaths",
+    "death-rate-from-malaria": "Malaria death rate",
+    "estimated-number-of-malaria-cases": "Estimated malaria cases",
+}
+EXTERNAL_INDICATOR_LABELS = {f"OWID:{slug}": name for slug, name in OWID_DATASETS.items()}
 SOURCE_LINKS = {
     "World Bank": "https://data.worldbank.org/",
     "WHO Global Health Observatory": "https://www.who.int/data/gho",
