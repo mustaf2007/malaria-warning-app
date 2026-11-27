@@ -76,6 +76,85 @@ def forecast_linear(frame: pd.DataFrame, indicator: str, country: str, horizon: 
     return pd.DataFrame({"year": future_years, "forecast": predictions, "rmse_in_sample": rmse, "method": "ordinary least-squares linear trend"})
 
 
+
+def build_data_quality_tables(
+    frame: pd.DataFrame,
+    current_year: int | None = None,
+) -> dict[str, pd.DataFrame]:
+    """Build transparent quality, indicator, source and coverage summaries.
+
+    Missingness is measured only among rows supplied by a source. The coverage
+    matrix counts non-missing country-indicator combinations; it does not infer
+    that an absent row is a confirmed zero or a source-reported missing value.
+    """
+    required = {"iso3", "country", "year", "indicator_code", "value", "source"}
+    missing = required - set(frame.columns)
+    if missing:
+        raise ValueError(f"Missing required columns: {', '.join(sorted(missing))}")
+
+    data = frame.copy()
+    data["year"] = pd.to_numeric(data["year"], errors="coerce")
+    data["value"] = pd.to_numeric(data["value"], errors="coerce")
+    data["iso3"] = data["iso3"].astype(str).str.upper().str.strip()
+    data["indicator_code"] = data["indicator_code"].astype(str)
+    data["source"] = data["source"].fillna("Unknown source").astype(str)
+    data = data.dropna(subset=["year", "indicator_code", "iso3"])
+    data["year"] = data["year"].astype(int)
+    reference_year = int(current_year if current_year is not None else pd.Timestamp.now(tz="UTC").year)
+
+    def summarise(group: pd.DataFrame, key: str) -> pd.DataFrame:
+        rows = []
+        for value, part in group.groupby(key, dropna=False):
+            total = len(part)
+            non_missing = int(part["value"].notna().sum())
+            observed_years = part.loc[part["value"].notna(), "year"]
+            rows.append({
+                key: value,
+                "rows_received": int(total),
+                "non_missing_values": non_missing,
+                "missing_values": int(total - non_missing),
+                "missing_pct": round((total - non_missing) / total * 100, 2) if total else 0.0,
+                "zero_values": int((part["value"] == 0).sum()),
+                "countries": int(part.loc[part["value"].notna(), "iso3"].nunique()),
+                "first_observation_year": int(observed_years.min()) if not observed_years.empty else pd.NA,
+                "latest_observation_year": int(observed_years.max()) if not observed_years.empty else pd.NA,
+                "years_behind_current": reference_year - int(observed_years.max()) if not observed_years.empty else pd.NA,
+            })
+        return pd.DataFrame(rows)
+
+    indicator_summary = summarise(data, "indicator_code")
+    source_summary = summarise(data, "source")
+    valid = data[data["value"].notna()]
+    if valid.empty:
+        coverage = pd.DataFrame()
+    else:
+        coverage = valid.pivot_table(
+            index="iso3", columns="indicator_code", values="value",
+            aggfunc="count", fill_value=0,
+        ).reset_index()
+        coverage.columns.name = None
+        names = data.drop_duplicates("iso3").set_index("iso3")["country"].to_dict()
+        coverage.insert(1, "country", coverage["iso3"].map(names))
+    summary = pd.DataFrame([{
+        "rows_received": int(len(data)),
+        "non_missing_values": int(data["value"].notna().sum()),
+        "missing_values": int(data["value"].isna().sum()),
+        "missing_pct": round(float(data["value"].isna().mean() * 100), 2) if len(data) else 0.0,
+        "zero_values": int((data["value"] == 0).sum()),
+        "countries": int(data["iso3"].nunique()),
+        "indicators": int(data["indicator_code"].nunique()),
+        "sources": int(data["source"].nunique()),
+        "latest_observation_year": int(valid["year"].max()) if not valid.empty else pd.NA,
+        "reference_calendar_year": reference_year,
+    }])
+    return {
+        "overall": summary,
+        "indicators": indicator_summary.sort_values("indicator_code").reset_index(drop=True),
+        "sources": source_summary.sort_values("source").reset_index(drop=True),
+        "coverage": coverage.sort_values("iso3").reset_index(drop=True) if not coverage.empty else coverage,
+    }
+
+
 def answer_data_question(frame: pd.DataFrame, question: str, country_names: dict[str, str] | None = None) -> str:
     """Model-free assistant: answers supported questions by calculating from loaded observations."""
     q = (question or "").strip().lower()
