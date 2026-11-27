@@ -196,3 +196,142 @@ def fetch_owid_bundle(start_year: int = 2000, end_year: int = 2024) -> tuple[lis
         except Exception as exc:
             statuses.append({"code": f"OWID:{slug}", "status": "unavailable", "records": "0", "non_missing": "0", "source": f"Our World in Data: {exc}"})
     return rows, statuses
+
+
+# Malaria Atlas Project public Trends API. Metric path tokens are case-sensitive.
+MAP_BASE = "https://data.malariaatlas.org/map-platform-app-backend/api/v1"
+MAP_METRICS = {
+    "Pf_incidence-count": {"name": "P. falciparum clinical cases", "group": "Burden", "unit": "estimated cases", "availability_key": "pfIncidenceRate"},
+    "Pf_incidence-rate": {"name": "P. falciparum clinical incidence", "group": "Burden", "unit": "cases per 1,000 population per year", "availability_key": "pfIncidenceRate"},
+    "Pf_PR-rate": {"name": "P. falciparum parasite prevalence (PfPR2-10)", "group": "Burden", "unit": "proportion", "availability_key": "pfpr"},
+    "Pf_mortality-count": {"name": "P. falciparum deaths", "group": "Burden", "unit": "estimated deaths", "availability_key": "pfMortalityRate"},
+    "Pf_mortality-rate": {"name": "P. falciparum mortality rate", "group": "Burden", "unit": "deaths per 100,000 population per year", "availability_key": "pfMortalityRate"},
+    "Pv_incidence-count": {"name": "P. vivax clinical cases", "group": "Burden", "unit": "estimated cases", "availability_key": "pvIncidenceRate"},
+    "Pv_incidence-rate": {"name": "P. vivax clinical incidence", "group": "Burden", "unit": "cases per 1,000 population per year", "availability_key": "pvIncidenceRate"},
+    "Pv_PR-rate": {"name": "P. vivax parasite prevalence", "group": "Burden", "unit": "proportion", "availability_key": "pvpr"},
+    "Antimalarial_EFT-rate": {"name": "Effective antimalarial treatment", "group": "Interventions", "unit": "proportion", "availability_key": "effectiveTreatment"},
+    "IRS_coverage-rate": {"name": "Indoor residual spraying coverage", "group": "Interventions", "unit": "proportion", "availability_key": "irsCoverage"},
+    "ITN_use-rate": {"name": "Population sleeping under insecticide-treated nets", "group": "Interventions", "unit": "proportion", "availability_key": "itnUse"},
+    "ITN_access-rate": {"name": "Population with access to insecticide-treated nets", "group": "Interventions", "unit": "proportion", "availability_key": "itnAccess"},
+    "ITN_use_rate-rate": {"name": "ITN use among people with household access", "group": "Interventions", "unit": "proportion", "availability_key": "itnUseRate"},
+}
+
+
+def fetch_map_releases() -> list[dict[str, Any]]:
+    """Fetch MAP release metadata; callers must choose an explicit release."""
+    payload = _get_json(f"{MAP_BASE}/trends/metadata")
+    if not isinstance(payload, list):
+        raise DataSourceError("MAP release metadata returned an unexpected schema.")
+    releases = []
+    for item in payload:
+        if not isinstance(item, dict) or not item.get("version"):
+            continue
+        releases.append({
+            "version": str(item["version"]),
+            "data_end_year": int(item.get("dataEndYear") or 0),
+            "provisional": bool(item.get("provisional", False)),
+            "admin_version": (item.get("geoServerRefs") or {}).get("mapAdminVersion", ""),
+            "geo_server_refs": item.get("geoServerRefs") or {},
+        })
+    return releases
+
+
+def fetch_map_admin1(country_iso3: str, admin_version: str) -> list[dict[str, str]]:
+    """Resolve subnational admin-1 IDs for one African country and MAP boundary release."""
+    if len(country_iso3) != 3 or not country_iso3.isalpha():
+        raise ValueError("Country must be a three-letter ISO3 code.")
+    if not admin_version or not all(ch.isalnum() or ch in "._-" for ch in admin_version):
+        raise ValueError("Invalid MAP administrative boundary version.")
+    payload = _get_json(
+        f"https://data.malariaatlas.org/admin-unit-metadata/admin-units/ADMIN1",
+        {"mapAdmin": admin_version},
+    )
+    if isinstance(payload, dict):
+        records = payload.get("features") or payload.get("data") or payload.get("results") or []
+    elif isinstance(payload, list):
+        records = payload
+    else:
+        raise DataSourceError("MAP administrative-unit catalogue returned an unexpected schema.")
+    output = []
+    for item in records:
+        props = item.get("properties", item) if isinstance(item, dict) else {}
+        iso3 = str(props.get("iso3") or props.get("ISO3") or "").upper()
+        if iso3 != country_iso3.upper():
+            continue
+        unit_id = props.get("id") or props.get("ID")
+        name = props.get("name") or props.get("NAME_1") or props.get("admin1Name")
+        if unit_id is not None and name:
+            output.append({"id": str(unit_id), "name": str(name), "country": str(props.get("countryName") or props.get("country") or country_iso3), "iso3": iso3})
+    return sorted(output, key=lambda item: item["name"])
+
+
+def _jsonstat_rows(payload: dict[str, Any], geography_level: str, metric: str, stat: str, source_url: str) -> list[dict[str, Any]]:
+    """Decode MAP JSON-stat data using category indexes, not assumed positional order."""
+    dimension = payload.get("dimension") or {}
+    geo_key = "ISO" if geography_level == "admin0" else "ID"
+    geo_dim = dimension.get(geo_key) or {}
+    year_dim = dimension.get("Year") or {}
+    geo_index = (geo_dim.get("category") or {}).get("index") or {}
+    year_index = (year_dim.get("category") or {}).get("index") or {}
+    geo_labels = (geo_dim.get("category") or {}).get("label") or {}
+    years = sorted(((int(year), int(index)) for year, index in year_index.items()), key=lambda x: x[1])
+    geos = sorted(((str(code), int(index)) for code, index in geo_index.items()), key=lambda x: x[1])
+    values = payload.get("value", [])
+    if isinstance(values, dict):
+        value_at = lambda index: values.get(str(index))
+    else:
+        value_at = lambda index: values[index] if index < len(values) else None
+    expected = len(geos) * len(years)
+    if len(values) < expected:
+        raise DataSourceError(f"MAP JSON-stat values are incomplete: expected {expected}, received {len(values)}.")
+    output = []
+    for geo_code, geo_pos in geos:
+        for year, year_pos in years:
+            raw_value = value_at(geo_pos * len(years) + year_pos)
+            try:
+                value = float(raw_value) if raw_value is not None else None
+            except (TypeError, ValueError):
+                value = None
+            # MAP documents zero as a possible missing-estimate sentinel.
+            # Preserve it but mark it explicitly for downstream interpretation.
+            output.append({
+                "iso3": geo_code if geography_level == "admin0" else "",
+                "admin1_id": geo_code if geography_level == "admin1" else "",
+                "country": geo_labels.get(geo_code, geo_code),
+                "year": year, "indicator_code": f"MAP:{metric}",
+                "value": value, "source": f"Malaria Atlas Project · {stat}",
+                "source_url": source_url, "map_release": payload.get("version"),
+                "map_stat": stat, "possible_missing_zero": value == 0,
+            })
+    return output
+
+
+def fetch_map_series(metric: str, version: str, geography_level: str = "admin0",
+                     iso3: str | None = None, admin_unit_id: str | None = None,
+                     stat: str = "mean") -> list[dict[str, Any]]:
+    """Fetch a filtered MAP national or subnational time series from one explicit release."""
+    if metric not in MAP_METRICS:
+        raise ValueError("Unsupported MAP metric.")
+    if stat not in {"mean", "lci", "uci"}:
+        raise ValueError("Statistic must be mean, lci or uci.")
+    if geography_level not in {"admin0", "admin1"}:
+        raise ValueError("Geography level must be admin0 or admin1.")
+    if not version or not version.isdigit():
+        raise ValueError("Select a valid explicit MAP release.")
+    if bool(iso3) == bool(admin_unit_id):
+        raise ValueError("Provide exactly one geography filter: ISO3 or administrative-unit ID.")
+    if iso3 and (geography_level != "admin0" and geography_level != "admin1"):
+        raise ValueError("Invalid geography filter.")
+    if admin_unit_id and not admin_unit_id.isdigit():
+        raise ValueError("Invalid administrative-unit ID.")
+    params = {"version": version, "iso3": iso3} if iso3 else {"version": version, "adminUnitId": admin_unit_id}
+    url = f"{MAP_BASE}/trends/{'malaria' if MAP_METRICS[metric]['group'] == 'Burden' else 'interventions'}/{metric}/{geography_level}/{stat}"
+    payload = _get_json(url, params)
+    if not isinstance(payload, dict) or "dimension" not in payload or "value" not in payload:
+        raise DataSourceError("MAP Trends API returned an unexpected JSON-stat response.")
+    rows = _jsonstat_rows(payload, geography_level, metric, stat, url)
+    for row in rows:
+        row["source_url"] = f"{url}?version={version}&" + (f"iso3={iso3}" if iso3 else f"adminUnitId={admin_unit_id}")
+        row["map_release"] = version
+        row["map_provisional"] = None
+    return rows
