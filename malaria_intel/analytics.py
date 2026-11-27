@@ -12,15 +12,27 @@ def validate_observations(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, 
     clean = frame.copy()
     clean["year"] = pd.to_numeric(clean["year"], errors="coerce")
     clean["value"] = pd.to_numeric(clean["value"], errors="coerce")
-    clean = clean.dropna(subset=["iso3", "year", "indicator_code"])
-    clean["year"] = clean["year"].astype(int)
-    clean["iso3"] = clean["iso3"].astype(str).str.upper().str.strip()
-    clean = clean.drop_duplicates(subset=["iso3", "year", "indicator_code", "source"], keep="last")
-    clean = clean.sort_values(["indicator_code", "country", "year"]).reset_index(drop=True)
+    clean["iso3"] = clean["iso3"].astype("string").str.upper().str.strip()
+    clean["indicator_code"] = clean["indicator_code"].astype("string").str.strip()
+    clean["source"] = clean["source"].astype("string").str.strip()
+    valid_year = clean["year"].notna() & clean["year"].mod(1).eq(0)
+    placeholder_iso3 = {"NAN", "NULL", "NONE", "UNK", "UNKNOWN", "XXX"}
+    valid_iso3 = clean["iso3"].str.fullmatch(r"[A-Z]{3}", na=False) & ~clean["iso3"].isin(placeholder_iso3)
+    valid_indicator = clean["indicator_code"].notna() & clean["indicator_code"].ne("")
+    valid_source = clean["source"].notna() & clean["source"].ne("")
+    valid_rows = clean[valid_year & valid_iso3 & valid_indicator & valid_source].copy()
+    invalid_rows_removed = int(len(clean) - len(valid_rows))
+    valid_rows["year"] = valid_rows["year"].astype(int)
+    deduplicated = valid_rows.drop_duplicates(
+        subset=["iso3", "year", "indicator_code", "source"], keep="last"
+    )
+    duplicate_keys_removed = int(len(valid_rows) - len(deduplicated))
+    clean = deduplicated.sort_values(["indicator_code", "country", "year"]).reset_index(drop=True)
     quality = {
         "rows": int(len(clean)),
         "missing_values": int(clean["value"].isna().sum()),
-        "duplicate_keys_removed": int(len(frame) - len(clean)),
+        "invalid_rows_removed": invalid_rows_removed,
+        "duplicate_keys_removed": duplicate_keys_removed,
         "countries": int(clean["iso3"].nunique()),
         "indicators": int(clean["indicator_code"].nunique()),
         "years": int(clean["year"].nunique()),
