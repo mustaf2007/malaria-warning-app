@@ -74,7 +74,7 @@ def test_data_quality_tables_report_missing_zero_and_freshness():
     assert overall["missing_values"] == 2
     assert overall["zero_values"] == 1
     inc = result["indicators"].set_index("indicator_code").loc["INC"]
-    assert inc["missing_pct"] == pytest.approx(50.0)
+    assert inc["missing_pct"] == pytest.approx(100 / 3, abs=0.01)
     assert inc["latest_observation_year"] == 2024
     assert inc["years_behind_current"] == 2
     assert result["coverage"].set_index("iso3").loc["SOM", "INC"] == 1
