@@ -30,7 +30,7 @@ def test_who_odata_reader_follows_server_next_link(monkeypatch):
         if url.endswith("/Indicator"):
             return {
                 "value": [{"IndicatorCode": "A"}],
-                "@odata.nextLink": "https://example.test/Indicator?page=2",
+                "@odata.nextLink": "https://ghoapi.azureedge.net/api/Indicator?page=2",
             }
         return {"value": [{"IndicatorCode": "B"}]}
 
@@ -42,7 +42,7 @@ def test_who_odata_reader_follows_server_next_link(monkeypatch):
     assert [row["IndicatorCode"] for row in rows] == ["A", "B"]
     assert requested == [
         (f"{data_sources.WHO_GHO_BASE}/Indicator", {"$top": 1000}),
-        ("https://example.test/Indicator?page=2", None),
+        ("https://ghoapi.azureedge.net/api/Indicator?page=2", None),
     ]
 
 
@@ -75,3 +75,44 @@ def test_selected_who_indicator_uses_bounded_odata_pagination(monkeypatch):
         "source_url": "https://www.who.int/data/gho/data/indicators/indicator-details/GHO/MALARIA_1",
         "last_updated": "2024",
     }]
+
+
+
+def test_who_odata_reader_rejects_external_pagination_host(monkeypatch):
+    requested = []
+
+    def fake_get_json(url, params=None):
+        requested.append(url)
+        return {
+            "value": [{"IndicatorCode": "A"}],
+            "@odata.nextLink": "https://attacker.example/steal",
+        }
+
+    monkeypatch.setattr(data_sources, "_get_json", fake_get_json)
+    import pytest
+
+    with pytest.raises(data_sources.DataSourceError, match="outside the official"):
+        data_sources._get_odata_rows(f"{data_sources.WHO_GHO_BASE}/Indicator")
+    assert requested == [f"{data_sources.WHO_GHO_BASE}/Indicator"]
+
+
+def test_who_odata_reader_rejects_malformed_records(monkeypatch):
+    import pytest
+
+    monkeypatch.setattr(data_sources, "_get_json", lambda *args, **kwargs: {"value": "not-a-list"})
+    with pytest.raises(data_sources.DataSourceError, match="valid records list"):
+        data_sources._get_odata_rows(f"{data_sources.WHO_GHO_BASE}/Indicator")
+
+
+def test_who_odata_reader_fails_instead_of_silently_truncating(monkeypatch):
+    import pytest
+
+    def fake_get_json(url, params=None):
+        return {
+            "value": [{"IndicatorCode": "A"}],
+            "@odata.nextLink": f"{data_sources.WHO_GHO_BASE}/Indicator?page=next",
+        }
+
+    monkeypatch.setattr(data_sources, "_get_json", fake_get_json)
+    with pytest.raises(data_sources.DataSourceError, match="safety limit"):
+        data_sources._get_odata_rows(f"{data_sources.WHO_GHO_BASE}/Indicator")
