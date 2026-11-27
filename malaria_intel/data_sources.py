@@ -27,6 +27,23 @@ def _get_json(url: str, params: dict[str, Any] | None = None) -> Any:
     raise DataSourceError(f"Unable to retrieve public data: {last_error}")
 
 
+
+def _get_odata_rows(url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Read all pages from a WHO OData collection using its server-provided next link."""
+    payload = _get_json(url, params)
+    output = list(payload.get("value", [])) if isinstance(payload, dict) else []
+    next_url = payload.get("@odata.nextLink") or payload.get("odata.nextLink") if isinstance(payload, dict) else None
+    pages = 0
+    while next_url and pages < 100:
+        payload = _get_json(next_url)
+        if not isinstance(payload, dict):
+            break
+        output.extend(payload.get("value", []))
+        next_url = payload.get("@odata.nextLink") or payload.get("odata.nextLink")
+        pages += 1
+    return output
+
+
 def fetch_african_countries() -> list[dict[str, str]]:
     """Return World Bank country metadata for African economies only."""
     payload = _get_json(f"{WB_BASE}/country", {"format": "json", "per_page": 400})
@@ -79,8 +96,7 @@ def fetch_world_bank_indicator(code: str, start_year: int = 2000, end_year: int 
 
 def discover_who_malaria_indicators() -> list[dict[str, str]]:
     """Discover malaria-related indicator codes from the WHO GHO OData catalogue."""
-    payload = _get_json(f"{WHO_GHO_BASE}/Indicator", {"$format": "json", "$top": 5000})
-    values = payload.get("value", []) if isinstance(payload, dict) else []
+    values = _get_odata_rows(f"{WHO_GHO_BASE}/Indicator", {"$format": "json", "$top": 5000})
     matches = []
     for item in values:
         name = str(item.get("IndicatorName") or "")
@@ -94,8 +110,7 @@ def fetch_who_gho_indicator(code: str) -> list[dict[str, Any]]:
     """Fetch a selected WHO GHO indicator code; source fields are preserved."""
     if not code or not code.replace("_", "").isalnum():
         raise ValueError("Invalid WHO GHO indicator code.")
-    payload = _get_json(f"{WHO_GHO_BASE}/{code}", {"$format": "json", "$top": 10000})
-    values = payload.get("value", []) if isinstance(payload, dict) else []
+    values = _get_odata_rows(f"{WHO_GHO_BASE}/{code}", {"$format": "json", "$top": 10000})
     output = []
     for item in values:
         year = item.get("TimeDim")
