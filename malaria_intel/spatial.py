@@ -175,7 +175,7 @@ def join_admin1_estimates_to_geojson(
 ) -> dict[str, Any]:
     """Join MAP admin-1 estimates to boundary features using unique exact name matches.
 
-    Ambiguous or unmatched names are deliberately excluded rather than guessed.
+    Ambiguous, duplicate, or unmatched names are deliberately excluded rather than guessed.
     """
     if not isinstance(geojson, dict) or geojson.get("type") != "FeatureCollection":
         raise ValueError("Expected a GeoJSON FeatureCollection.")
@@ -189,23 +189,33 @@ def join_admin1_estimates_to_geojson(
             ids_by_name.setdefault(key, []).append(unit_id)
             names_by_id[unit_id] = name
 
-    features = []
-    matched_ids = set()
-    for original in geojson.get("features", []):
-        feature = dict(original)
+    def feature_name_key(feature: dict[str, Any]) -> str:
         props = feature.get("properties") or {}
         candidates = [
             props.get("shapeName"), props.get("shapeNameAlt"), props.get("name"),
             props.get("NAME_1"), props.get("ADM1_EN"), props.get("admin1Name"),
         ]
-        key = next((_normalise_admin_name(name) for name in candidates if _normalise_admin_name(name)), "")
+        return next((_normalise_admin_name(name) for name in candidates if _normalise_admin_name(name)), "")
+
+    source_features = [feature for feature in geojson.get("features", []) if isinstance(feature, dict)]
+    boundary_name_counts: dict[str, int] = {}
+    for feature in source_features:
+        key = feature_name_key(feature)
+        if key:
+            boundary_name_counts[key] = boundary_name_counts.get(key, 0) + 1
+
+    features = []
+    matched_ids = set()
+    for original in source_features:
+        key = feature_name_key(original)
         matches = ids_by_name.get(key, [])
-        if len(matches) != 1:
+        if not key or len(matches) != 1 or boundary_name_counts.get(key) != 1:
             continue
         unit_id = matches[0]
-        props = dict(props)
+        props = dict(original.get("properties") or {})
         props["map_admin1_id"] = unit_id
         props["map_admin1_name"] = names_by_id[unit_id]
+        feature = dict(original)
         feature["properties"] = props
         features.append(feature)
         matched_ids.add(unit_id)
@@ -213,11 +223,15 @@ def join_admin1_estimates_to_geojson(
     rows = []
     for row in estimates:
         unit_id = str(row.get("admin1_id", "")).strip()
-        if unit_id in matched_ids and row.get("value") is not None:
-            joined = dict(row)
-            joined["map_admin1_id"] = unit_id
-            joined["admin1_name"] = names_by_id[unit_id]
-            rows.append(joined)
+        value = row.get("value")
+        if unit_id not in matched_ids or value is None:
+            continue
+        if isinstance(value, (int, float)) and not __import__("math").isfinite(value):
+            continue
+        joined = dict(row)
+        joined["map_admin1_id"] = unit_id
+        joined["admin1_name"] = names_by_id[unit_id]
+        rows.append(joined)
 
     return {
         "geojson": {"type": "FeatureCollection", "features": features},
