@@ -100,8 +100,8 @@ if st.session_state.get("who_rows"):
 with st.sidebar:
     st.markdown("### Analysis filters")
     iso_options = [c["iso3"] for c in countries] or sorted(raw.get("iso3",pd.Series(dtype=str)).dropna().unique())
-    default_iso = [x for x in ["SOM","KEN","ETH","UGA","TZA","NGA","GHA","COD"] if x in iso_options]
-    selected_iso = st.multiselect("Countries", iso_options, default=default_iso)
+    # Start with the complete African country set; users can narrow it in the multiselect.
+    selected_iso = st.multiselect("Countries", iso_options, default=iso_options)
     years = sorted(raw["year"].dropna().unique().tolist()) if not raw.empty else list(range(DEFAULT_START_YEAR,DEFAULT_END_YEAR+1))
     year_range = st.slider("Reference period", int(min(years)), int(max(years)), (int(min(years)),int(max(years)))) if len(years)>1 else (DEFAULT_START_YEAR,DEFAULT_END_YEAR)
     upload = st.file_uploader("Upload supplementary CSV", type=["csv"], help="Required columns: iso3,country,year,indicator_code,value,source. Session-only.")

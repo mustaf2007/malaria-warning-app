@@ -61,8 +61,11 @@ def fetch_african_countries() -> list[dict[str, str]]:
     return sorted(countries, key=lambda item: item["name"])
 
 
-def fetch_world_bank_indicator(code: str, start_year: int = 2000, end_year: int = 2024) -> list[dict[str, Any]]:
+def fetch_world_bank_indicator(code: str, start_year: int = 1960, end_year: int | None = None) -> list[dict[str, Any]]:
     """Fetch an indicator for all countries; null observations are retained as missing."""
+    if end_year is None:
+        from datetime import datetime, timezone
+        end_year = datetime.now(timezone.utc).year
     if not code or not code.replace(".", "").replace("_", "").isalnum():
         raise ValueError("Invalid World Bank indicator code.")
     page = 1
@@ -132,8 +135,11 @@ def fetch_who_gho_indicator(code: str) -> list[dict[str, Any]]:
     return output
 
 
-def fetch_indicator_bundle(start_year: int = 2000, end_year: int = 2024, codes: list[str] | None = None) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+def fetch_indicator_bundle(start_year: int = 1960, end_year: int | None = None, codes: list[str] | None = None) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     """Fetch available catalogue indicators independently; failures are reported, not hidden."""
+    if end_year is None:
+        from datetime import datetime, timezone
+        end_year = datetime.now(timezone.utc).year
     selected = codes or [item.code for item in INDICATORS]
     all_rows: list[dict[str, Any]] = []
     statuses: list[dict[str, str]] = []
@@ -148,8 +154,11 @@ def fetch_indicator_bundle(start_year: int = 2000, end_year: int = 2024, codes: 
     return all_rows, statuses
 
 
-def fetch_owid_grapher(slug: str, start_year: int = 2000, end_year: int = 2024) -> list[dict[str, Any]]:
+def fetch_owid_grapher(slug: str, start_year: int = 1960, end_year: int | None = None) -> list[dict[str, Any]]:
     """Fetch a documented Our World in Data Grapher CSV and normalize country rows."""
+    if end_year is None:
+        from datetime import datetime, timezone
+        end_year = datetime.now(timezone.utc).year
     if slug not in OWID_DATASETS:
         raise ValueError("The requested Our World in Data series is not in the approved catalogue.")
     url = f"https://ourworldindata.org/grapher/{slug}.csv?v=1&csvType=full&useColumnShortNames=false"
@@ -184,8 +193,11 @@ def fetch_owid_grapher(slug: str, start_year: int = 2000, end_year: int = 2024) 
     return output
 
 
-def fetch_owid_bundle(start_year: int = 2000, end_year: int = 2024) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+def fetch_owid_bundle(start_year: int = 1960, end_year: int | None = None) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     """Fetch each approved OWID malaria series independently and report connector status."""
+    if end_year is None:
+        from datetime import datetime, timezone
+        end_year = datetime.now(timezone.utc).year
     rows: list[dict[str, Any]] = []
     statuses: list[dict[str, str]] = []
     for slug in OWID_DATASETS:
@@ -477,8 +489,11 @@ def fetch_map_wms_preview(layer_ref: str, year: int | None, width: int = 1600, h
 
 
 
-def fetch_dashboard_bundle(start_year: int = 2000, end_year: int = 2024) -> tuple[list[dict[str, str]], list[dict[str, Any]], list[dict[str, str]]]:
+def fetch_dashboard_bundle(start_year: int = 1960, end_year: int | None = None) -> tuple[list[dict[str, str]], list[dict[str, Any]], list[dict[str, str]]]:
     """Load dashboard sources independently so one outage cannot blank the whole app."""
+    if end_year is None:
+        from datetime import datetime, timezone
+        end_year = datetime.now(timezone.utc).year
     countries: list[dict[str, str]] = []
     rows: list[dict[str, Any]] = []
     statuses: list[dict[str, str]] = []

@@ -59,3 +59,30 @@ def test_dashboard_bundle_returns_status_when_all_sources_fail(monkeypatch):
     assert rows == []
     assert len(statuses) == 3
     assert all(item["status"] == "unavailable" for item in statuses)
+
+
+def test_dashboard_bundle_defaults_to_1960_through_current_year(monkeypatch):
+    from datetime import datetime, timezone
+    from malaria_intel import config
+
+    expected_end = datetime.now(timezone.utc).year
+    assert config.DEFAULT_START_YEAR == 1960
+    assert config.DEFAULT_END_YEAR == expected_end
+
+
+def test_african_country_catalogue_includes_sub_saharan_and_north_africa(monkeypatch):
+    payload = [
+        {"id": "header"},
+        [
+            {"id": "SOM", "iso2Code": "SO", "name": "Somalia", "region": {"value": "Sub-Saharan Africa"}},
+            {"id": "NGA", "iso2Code": "NG", "name": "Nigeria", "region": {"value": "Sub-Saharan Africa"}},
+            {"id": "DZA", "iso2Code": "DZ", "name": "Algeria", "region": {"value": "Middle East & North Africa"}},
+            {"id": "EGY", "iso2Code": "EG", "name": "Egypt", "region": {"value": "Middle East & North Africa"}},
+            {"id": "FRA", "iso2Code": "FR", "name": "France", "region": {"value": "Europe & Central Asia"}},
+        ],
+    ]
+    monkeypatch.setattr(data_sources, "_get_json", lambda *args, **kwargs: payload)
+    countries = data_sources.fetch_african_countries()
+    codes = {country["iso3"] for country in countries}
+    assert {"SOM", "NGA", "DZA", "EGY"}.issubset(codes)
+    assert "FRA" not in codes
