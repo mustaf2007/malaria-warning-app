@@ -87,6 +87,29 @@ def _safe(value) -> str:
     return escape(str(value))
 
 
+def _country_year_summary(frame: pd.DataFrame) -> pd.DataFrame:
+    """Collapse source rows within a country-indicator-year before regional summaries.
+
+    The median is an explicit descriptive compromise, not source harmonisation.
+    Source count and labels are retained so disagreement remains visible.
+    """
+    valid = frame.dropna(subset=["value"]).copy()
+    if valid.empty:
+        return pd.DataFrame(columns=[
+            "iso3", "country", "year", "value", "source_count", "sources"
+        ])
+    return (
+        valid.groupby(["iso3", "country", "year"], as_index=False, dropna=False)
+        .agg(
+            value=("value", "median"),
+            source_count=("source", "nunique"),
+            sources=("source", lambda values: ", ".join(sorted(set(values.dropna().astype(str))))),
+        )
+        .sort_values(["iso3", "year"])
+        .reset_index(drop=True)
+    )
+
+
 def build_country_report_pdf(
     observations: pd.DataFrame,
     country_iso: str,
@@ -149,17 +172,17 @@ def build_country_report_pdf(
     charts = []
     for code in indicator_codes:
         series = data[data["indicator_code"].astype(str) == code].sort_values("year")
-        valid = series[series["value"].notna()]
+        valid = _country_year_summary(series.assign(iso3=iso, country=country_name))
         if valid.empty:
             summary_rows.append([code, "Not available", "—", "Not available", "—", "No non-missing values"])
             continue
         first, last = valid.iloc[0], valid.iloc[-1]
-        sources = ", ".join(sorted(valid["source"].dropna().astype(str).unique()))
+        sources = ", ".join(sorted(series["source"].dropna().astype(str).unique()))
         summary_rows.append([
             code, f"{last['value']:,.4g}", str(int(last["year"])),
             f"{first['value']:,.4g}", str(int(first["year"])), _safe(sources[:100]),
         ])
-        charts.append(TrendChart(valid, f"{code} · {sources[:70]}"))
+        charts.append(TrendChart(valid[["year", "value"]], f"{code} · annual median across sources"))
     table = Table(summary_rows, repeatRows=1, colWidths=[34*mm, 23*mm, 12*mm, 23*mm, 12*mm, 48*mm])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#123B32")),
@@ -267,8 +290,9 @@ def build_africa_report_pdf(
     styles.add(ParagraphStyle(name="AfricaBody", parent=styles["BodyText"], fontSize=9, leading=13, spaceAfter=5))
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=18*mm, leftMargin=18*mm, topMargin=18*mm, bottomMargin=17*mm, title="Africa Malaria Annual Intelligence Report", author="Africa Malaria Intelligence")
-    total_countries = int(data["iso3"].nunique())
-    total_rows = int(data["value"].notna().sum())
+    country_year = _country_year_summary(data)
+    total_countries = int(country_year["iso3"].nunique())
+    total_rows = int(len(country_year))
     story = [
         Spacer(1, 7*mm),
         Paragraph("AFRICA MALARIA INTELLIGENCE", styles["AfricaSubtle"]),
@@ -313,7 +337,8 @@ def build_africa_report_pdf(
 
     for code in selected:
         subset = data[data["indicator_code"].astype(str) == code].copy()
-        valid = subset[subset["value"].notna()].copy()
+        valid_source_rows = subset[subset["value"].notna()].copy()
+        valid = _country_year_summary(valid_source_rows)
         title = labels.get(code, code)
         story.append(Paragraph(_safe(title), styles["AfricaSection"]))
         if valid.empty:
@@ -321,8 +346,10 @@ def build_africa_report_pdf(
             continue
         annual = valid.groupby("year", as_index=False).agg(value=("value", "median"), countries=("iso3", "nunique"))
         story.append(Paragraph(
-            f"Available observations: {len(valid):,} across {valid['iso3'].nunique()} countries. "
-            "The chart shows the unweighted median of available country values in each year; country coverage is shown below.",
+            f"Available source rows: {len(valid_source_rows):,}; country-year values after within-country source aggregation: "
+            f"{len(valid):,} across {valid['iso3'].nunique()} countries. "
+            "Each country contributes once per year using the median of its available source values; the continental line is the unweighted median of those country-level values. "
+            "This does not harmonise differences in source definitions or methods.",
             styles["AfricaBody"]))
         story.append(TrendChart(annual[["year", "value"]], f"Unweighted country median · {title}", width=165*mm, height=55*mm))
         coverage_rows = [["Year", "Countries contributing", "Median value"]]
@@ -340,12 +367,12 @@ def build_africa_report_pdf(
         story.extend([coverage, Spacer(1, 3*mm)])
         latest_year = valid.groupby("iso3")["year"].max().rename("latest_year")
         latest = valid.join(latest_year, on="iso3")
-        latest = latest[latest["year"] == latest["latest_year"]].sort_values("value", ascending=False)
-        latest = latest.drop_duplicates(subset=["iso3"], keep="first").head(max(1, int(max_countries_per_indicator)))
-        country_rows = [["Country", "ISO3", "Value", "Reference year", "Source"]]
+        latest = latest[latest["year"] == latest["latest_year"]].sort_values(["value", "iso3"], ascending=[False, True])
+        latest = latest.head(max(1, int(max_countries_per_indicator)))
+        country_rows = [["Country", "ISO3", "Value", "Reference year", "Sources", "Source count"]]
         for row in latest.itertuples(index=False):
-            country_rows.append([_safe(row.country), row.iso3, f"{row.value:,.4g}", str(int(row.year)), _safe(str(row.source)[:45])])
-        country_table = Table(country_rows, repeatRows=1, colWidths=[45*mm, 18*mm, 27*mm, 27*mm, 55*mm])
+            country_rows.append([_safe(row.country), row.iso3, f"{row.value:,.4g}", str(int(row.year)), _safe(str(row.sources)[:45]), str(int(row.source_count))])
+        country_table = Table(country_rows, repeatRows=1, colWidths=[38*mm, 15*mm, 22*mm, 22*mm, 50*mm, 20*mm])
         country_table.setStyle(TableStyle([
             ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#123B32")),
             ("TEXTCOLOR", (0,0), (-1,0), colors.white),
