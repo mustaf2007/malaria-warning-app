@@ -46,3 +46,16 @@ def test_dashboard_bundle_keeps_world_bank_rows_when_owid_fails(monkeypatch):
     assert countries[0]["iso3"] == "SOM"
     assert rows == expected_rows
     assert any(item["code"] == "OWID_BUNDLE" and item["status"] == "unavailable" for item in statuses)
+
+
+def test_dashboard_bundle_returns_status_when_all_sources_fail(monkeypatch):
+    monkeypatch.setattr(data_sources, "fetch_african_countries", lambda: (_ for _ in ()).throw(RuntimeError("metadata offline")))
+    monkeypatch.setattr(data_sources, "fetch_indicator_bundle", lambda start, end: (_ for _ in ()).throw(RuntimeError("World Bank offline")))
+    monkeypatch.setattr(data_sources, "fetch_owid_bundle", lambda start, end: (_ for _ in ()).throw(RuntimeError("OWID offline")))
+
+    countries, rows, statuses = data_sources.fetch_dashboard_bundle(2000, 2024)
+
+    assert countries == []
+    assert rows == []
+    assert len(statuses) == 3
+    assert all(item["status"] == "unavailable" for item in statuses)
