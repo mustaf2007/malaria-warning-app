@@ -44,3 +44,34 @@ def test_who_odata_reader_follows_server_next_link(monkeypatch):
         (f"{data_sources.WHO_GHO_BASE}/Indicator", {"$top": 1000}),
         ("https://example.test/Indicator?page=2", None),
     ]
+
+
+
+def test_selected_who_indicator_uses_bounded_odata_pagination(monkeypatch):
+    calls = []
+
+    def fake_rows(url, params=None):
+        calls.append((url, params))
+        return [{
+            "TimeDim": 2024,
+            "SpatialDim": "SOM",
+            "NumericValue": "12.5",
+            "TimeDimensionValue": "2024",
+        }]
+
+    monkeypatch.setattr(data_sources, "_get_odata_rows", fake_rows)
+    result = data_sources.fetch_who_gho_indicator("MALARIA_1")
+
+    assert calls == [
+        (f"{data_sources.WHO_GHO_BASE}/MALARIA_1", {"$top": 1000})
+    ]
+    assert result == [{
+        "iso3": "SOM",
+        "country": "SOM",
+        "year": 2024,
+        "indicator_code": "MALARIA_1",
+        "value": 12.5,
+        "source": "WHO Global Health Observatory",
+        "source_url": "https://www.who.int/data/gho/data/indicators/indicator-details/GHO/MALARIA_1",
+        "last_updated": "2024",
+    }]
