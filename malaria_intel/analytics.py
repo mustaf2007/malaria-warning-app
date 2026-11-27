@@ -87,9 +87,9 @@ def answer_data_question(frame: pd.DataFrame, question: str, country_names: dict
     matched = next((code for code in indicators if code.lower() in q), None)
     if matched is None:
         for code, words in {
-            "SH.MLR.INCD.P3": ("incidence", "rate"), "SH.MLR.CASES": ("cases",),
-            "SH.MLR.DEATHS": ("deaths", "mortality"), "SH.MLR.NETS.ZS": ("nets", "bednet", "bed net"),
-            "SH.MLR.PREV.ZS": ("prevalence",),
+            "SH.MLR.INCD.P3": ("incidence", "rate"), "SH.STA.MALR": ("cases", "reported cases"),
+             
+            
         }.items():
             if code in indicators and any(word in q for word in words):
                 matched = code
