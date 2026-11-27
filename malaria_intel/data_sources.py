@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from io import StringIO
 from typing import Any
+from urllib.parse import urljoin, urlsplit
 import pandas as pd
 import requests
 from .config import INDICATORS, OWID_DATASETS, REQUEST_TIMEOUT, USER_AGENT
@@ -31,18 +32,51 @@ def _get_json(url: str, params: dict[str, Any] | None = None) -> Any:
 
 
 def _get_odata_rows(url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    """Read all pages from a WHO OData collection using its server-provided next link."""
-    payload = _get_json(url, params)
-    output = list(payload.get("value", [])) if isinstance(payload, dict) else []
-    next_url = payload.get("@odata.nextLink") or payload.get("odata.nextLink") if isinstance(payload, dict) else None
-    pages = 0
-    while next_url and pages < 100:
-        payload = _get_json(next_url)
+    """Read WHO OData pages safely; reject malformed, off-host, or truncated results."""
+    expected_host = urlsplit(WHO_GHO_BASE).hostname
+    initial = urlsplit(url)
+    if initial.scheme != "https" or initial.hostname != expected_host or initial.username or initial.password:
+        raise DataSourceError("WHO OData request must use the official HTTPS API host.")
+
+    def read_page(payload: Any) -> tuple[list[dict[str, Any]], str | None]:
         if not isinstance(payload, dict):
-            break
-        output.extend(payload.get("value", []))
-        next_url = payload.get("@odata.nextLink") or payload.get("odata.nextLink")
-        pages += 1
+            raise DataSourceError("WHO OData returned an unexpected response schema.")
+        values = payload.get("value")
+        if not isinstance(values, list) or any(not isinstance(item, dict) for item in values):
+            raise DataSourceError("WHO OData response is missing a valid records list.")
+        next_link = payload.get("@odata.nextLink") or payload.get("odata.nextLink")
+        if next_link is not None and not isinstance(next_link, str):
+            raise DataSourceError("WHO OData returned an invalid pagination link.")
+        return values, next_link
+
+    payload = _get_json(url, params)
+    page_rows, next_link = read_page(payload)
+    output = list(page_rows)
+    current_url = url
+    pages_read = 1
+    max_pages = 100
+
+    while next_link:
+        if pages_read >= max_pages:
+            raise DataSourceError(
+                f"WHO OData pagination exceeded the {max_pages}-page safety limit; results may be incomplete."
+            )
+        next_url = urljoin(current_url, next_link)
+        parsed = urlsplit(next_url)
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname != expected_host
+            or parsed.port not in (None, 443)
+            or parsed.username
+            or parsed.password
+        ):
+            raise DataSourceError("WHO OData supplied a pagination link outside the official HTTPS API host.")
+        payload = _get_json(next_url)
+        page_rows, next_link = read_page(payload)
+        output.extend(page_rows)
+        current_url = next_url
+        pages_read += 1
+
     return output
 
 
