@@ -70,12 +70,14 @@ def test_dashboard_bundle_defaults_to_1960_through_current_year(monkeypatch):
     assert config.DEFAULT_END_YEAR == expected_end
 
 
-def test_african_country_catalogue_includes_sub_saharan_and_north_africa(monkeypatch):
+def test_african_country_catalogue_uses_iso3_not_region_labels(monkeypatch):
     payload = [
         {"id": "header"},
         [
-            {"id": "SOM", "iso2Code": "SO", "name": "Somalia", "region": {"value": "Sub-Saharan Africa"}},
-            {"id": "NGA", "iso2Code": "NG", "name": "Nigeria", "region": {"value": "Sub-Saharan Africa"}},
+            {"id": "SOM", "iso2Code": "SO", "name": "Somalia", "region": {"value": "Sub-Saharan Africa (excluding high income)"}},
+            {"id": "KEN", "iso2Code": "KE", "name": "Kenya", "region": {"value": "Sub-Saharan Africa"}},
+            {"id": "NGA", "iso2Code": "NG", "name": "Nigeria", "region": {"value": "Africa Eastern and Southern"}},
+            {"id": "ZAF", "iso2Code": "ZA", "name": "South Africa", "region": {"value": "Sub-Saharan Africa"}},
             {"id": "DZA", "iso2Code": "DZ", "name": "Algeria", "region": {"value": "Middle East & North Africa"}},
             {"id": "EGY", "iso2Code": "EG", "name": "Egypt", "region": {"value": "Middle East & North Africa"}},
             {"id": "FRA", "iso2Code": "FR", "name": "France", "region": {"value": "Europe & Central Asia"}},
@@ -84,8 +86,13 @@ def test_african_country_catalogue_includes_sub_saharan_and_north_africa(monkeyp
     monkeypatch.setattr(data_sources, "_get_json", lambda *args, **kwargs: payload)
     countries = data_sources.fetch_african_countries()
     codes = {country["iso3"] for country in countries}
-    assert {"SOM", "NGA", "DZA", "EGY"}.issubset(codes)
+    assert {"SOM", "KEN", "NGA", "ZAF", "DZA", "EGY"}.issubset(codes)
     assert "FRA" not in codes
+
+
+def test_african_country_iso3_catalogue_has_54_countries():
+    assert len(data_sources.AFRICAN_COUNTRY_ISO3) == 54
+    assert {"SOM", "KEN", "NGA", "ZAF", "DZA", "EGY"}.issubset(data_sources.AFRICAN_COUNTRY_ISO3)
 
 
 
