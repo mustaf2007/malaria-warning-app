@@ -9,6 +9,7 @@ import streamlit as st
 from malaria_intel.analytics import answer_data_question, filter_observations, forecast_linear, latest_country_values, validate_observations, year_over_year
 from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS
 from malaria_intel.data_sources import DataSourceError, fetch_african_countries, fetch_indicator_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, fetch_owid_bundle, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series, fetch_map_wms_preview, resolve_map_wms_layer, map_wms_time_for_year
+from malaria_intel.spatial import fetch_country_boundary
 
 st.set_page_config(page_title=APP_NAME, page_icon="🦟", layout="wide", initial_sidebar_state="expanded")
 THEMES = {
@@ -41,6 +42,9 @@ def map_raster_preview(layer_ref, year):
 @st.cache_data(ttl=86400, show_spinner=False)
 def map_wms_layer(layer_ref):
     return resolve_map_wms_layer(layer_ref)
+@st.cache_data(ttl=86400, show_spinner=False)
+def map_country_boundary(iso3):
+    return fetch_country_boundary(iso3)
 def label(code):
     x = next((i for i in INDICATORS if i.code == code), None)
     return f"{x.name} · {x.unit}" if x else EXTERNAL_INDICATOR_LABELS.get(code, code)
@@ -326,6 +330,12 @@ elif nav == "MAP 5 km Raster Explorer":
                     key="map_raster_metric",
                 )
                 raster_label, raster_layer_ref = available_rasters[selected_raster_key]
+                focus_country_iso = st.selectbox(
+                    "Focus country", sorted(country_names),
+                    index=sorted(country_names).index("SOM") if "SOM" in country_names else 0,
+                    format_func=lambda iso: f"{country_names.get(iso, iso)} ({iso})",
+                    key="map_raster_country",
+                )
                 try:
                     layer_info = map_wms_layer(raster_layer_ref)
                 except Exception as exc:
@@ -347,9 +357,13 @@ elif nav == "MAP 5 km Raster Explorer":
                         st.warning("This MAP release is provisional. Confirm the release status before citing its estimates.")
                     if st.button("Render 5 km spatial layer", type="primary"):
                         try:
-                            with st.spinner("Loading the MAP raster preview and resolving its published time dimension…"):
+                            with st.spinner("Loading the selected country boundary and MAP raster preview…"):
+                                boundary = map_country_boundary(focus_country_iso)
                                 preview = map_raster_preview(raster_layer_ref, year_value)
                                 st.session_state.map_raster_context = {
+                                    "focus_country_iso": focus_country_iso,
+                                    "focus_country": country_names.get(focus_country_iso, focus_country_iso),
+                                    "boundary_geojson": boundary["geojson"],
                                     "release": raster_release["version"],
                                     "year": year_value,
                                     "metric": raster_label,
@@ -364,12 +378,13 @@ elif nav == "MAP 5 km Raster Explorer":
                             st.error(f"MAP spatial layer could not be rendered: {exc}")
                     raster_png = st.session_state.get("map_raster_png")
                     raster_context = st.session_state.get("map_raster_context")
-                    context_matches = bool(raster_context) and raster_context.get("release") == raster_release["version"] and raster_context.get("layer_ref") == raster_layer_ref and raster_context.get("year") == year_value
+                    context_matches = bool(raster_context) and raster_context.get("release") == raster_release["version"] and raster_context.get("layer_ref") == raster_layer_ref and raster_context.get("year") == year_value and raster_context.get("focus_country_iso") == focus_country_iso
                     if raster_png and raster_context and context_matches:
                         st.markdown("#### Africa · modelled raster surface")
                         selected_year_label = str(raster_context["year"]) if raster_context["year"] is not None else "Static layer"
-                        st.caption(f"{raster_context['metric']} · {selected_year_label} · MAP release {raster_context['release']}")
+                        st.caption(f"{raster_context['focus_country']} · {raster_context['metric']} · {selected_year_label} · MAP release {raster_context['release']}")
                         layer_json = json.dumps(raster_context["wms_layer"])
+                        boundary_json = json.dumps(raster_context["boundary_geojson"], separators=(",", ":"))
                         endpoint_json = json.dumps(raster_context["wms_endpoint"])
                         time_json = json.dumps(raster_context["wms_time"])
                         time_option = f", time:{time_json}" if raster_context["wms_time"] else ""
@@ -388,7 +403,10 @@ elif nav == "MAP 5 km Raster Explorer":
                             version:'1.1.1', srs:'EPSG:4326'{time_option},
                             opacity:0.78, attribution:'Malaria Atlas Project (CC BY 3.0)'
                           }}).addTo(map);
-                          map.fitBounds([[-35,-18],[38,52]]);
+                          const countryBoundary = L.geoJSON({boundary_json}, {{
+                            style: {{color:'#F8C34A',weight:2.5,fill:false,opacity:0.95}}
+                          }}).addTo(map);
+                          map.fitBounds(countryBoundary.getBounds().pad(0.08));
                           L.control.layers({{'OpenStreetMap':osm}},{{'MAP malaria raster':wms}}).addTo(map);
                           L.control.scale({{imperial:false}}).addTo(map);
                         }})();
@@ -401,7 +419,7 @@ elif nav == "MAP 5 km Raster Explorer":
                             f"map_{raster_context['release']}_{raster_context['year'] or 'static'}.png",
                             "image/png",
                         )
-                        st.caption("The interactive map uses MAP's WMS raster service and OpenStreetMap base tiles. Display resolution depends on map zoom and screen size; the source raster is the MAP high-resolution product.")
+                        st.caption("The interactive map is zoomed to the selected ADM0 country boundary. MAP raster tiles remain served by WMS; the boundary is supplied by geoBoundaries. The downloadable PNG remains an Africa-wide preview. Display resolution depends on map zoom and screen size.")
                         st.markdown("**Attribution:** Malaria Atlas Project, selected raster layer and release. MAP maps are available under CC BY 3.0; retain dataset-specific citation details and identify adaptations. OpenStreetMap contributors provide the basemap.")
     except Exception as exc:
         st.error(f"MAP raster catalogue unavailable: {exc}")
