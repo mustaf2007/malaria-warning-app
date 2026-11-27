@@ -1,6 +1,6 @@
 # 🦟 Africa Malaria Intelligence
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://gdp-dashboard-template.streamlit.app/)
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://africa-malaria-intelligence.streamlit.app/)
 
 A Streamlit-based, open-data research and programme-intelligence workspace for malaria burden, trends and contextual health indicators across African countries.
 
