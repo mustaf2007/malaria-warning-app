@@ -37,7 +37,7 @@ def fetch_african_countries() -> list[dict[str, str]]:
         region = (row.get("region") or {}).get("value", "")
         iso3 = row.get("id")
         iso2 = row.get("iso2Code")
-        if region == "Africa" and iso3 and iso2 and iso2 != "ZH":
+        if (region == "Sub-Saharan Africa" or iso3 in {"DZA", "EGY", "LBY", "MAR", "TUN", "SDN", "MRT"}) and iso3 and iso2 and iso2 != "ZH":
             countries.append({"iso3": iso3, "iso2": iso2, "name": row.get("name", iso3), "region": region})
     return sorted(countries, key=lambda item: item["name"])
 
