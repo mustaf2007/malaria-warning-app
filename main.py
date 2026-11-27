@@ -747,13 +747,13 @@ elif nav == "Data Quality & Sources":
         qc.metric("Missing values", f"{int(overall['missing_values']):,}", f"{overall['missing_pct']}% of received rows")
         qd.metric("Zero values", f"{int(overall['zero_values']):,}", help="Zero is flagged for review, not automatically treated as an error.")
         qe.metric("Latest observation", str(overall["latest_observation_year"]))
-        st.markdown("#### Indicator-level coverage and freshness")
+        st.markdown("#### Indicator-level coverage and observation recency")
         indicator_table = quality_tables["indicators"].rename(columns={
             "indicator_code":"Indicator", "rows_received":"Rows received",
             "non_missing_values":"Non-missing", "missing_values":"Missing",
             "missing_pct":"Missing (%)", "zero_values":"Zero values",
             "countries":"Countries with values", "first_observation_year":"First year",
-            "latest_observation_year":"Latest year", "years_behind_current":"Years behind current calendar year",
+            "latest_observation_year":"Latest year", "years_behind_current":"Years since latest observation",
         })
         st.dataframe(indicator_table, use_container_width=True, hide_index=True)
         st.download_button("Download indicator quality · CSV", quality_tables["indicators"].to_csv(index=False).encode("utf-8"), "malaria_indicator_quality.csv", "text/csv", key="download_indicator_quality")
@@ -764,7 +764,8 @@ elif nav == "Data Quality & Sources":
             st.download_button("Download coverage matrix · CSV", quality_tables["coverage"].to_csv(index=False).encode("utf-8"), "malaria_country_indicator_coverage.csv", "text/csv", key="download_coverage_matrix")
         else:
             st.info("No non-missing country-indicator observations are available for the coverage matrix.")
-        st.markdown("#### Source-level freshness and missingness")
+        st.markdown("#### Source-level observation recency and missingness")
+    st.caption("Years since latest observation measures the age of the newest data point, not when the provider last updated its catalogue or API. Connector status reflects the latest fetch attempt; provider publication dates are shown only when supplied by the source.")
         source_table = quality_tables["sources"].rename(columns={
             "source":"Source", "rows_received":"Rows received",
             "non_missing_values":"Non-missing", "missing_values":"Missing",
