@@ -9,7 +9,7 @@ A Streamlit-based, open-data research and programme-intelligence workspace for m
 - Executive overview with latest available observations and country coverage.
 - Country profiles and historical indicator trends.
 - Country comparisons and year-on-year change calculations.
-- Country-level choropleth maps, a MAP national/subnational time-series workspace, and an interactive Africa-wide 5 km raster explorer using release-advertised GeoServer WMS layers.
+- Country-level choropleth maps, a MAP national/subnational time-series workspace, and an interactive country-focused high-resolution raster explorer with ADM0 boundary overlays and release-advertised GeoServer WMS layers.
 - Prevention, population vulnerability and health-system context indicators where data is available.
 - Exploratory linear trend extrapolation with an explicit non-operational warning.
 - Model-free analyst that computes answers from loaded observations rather than inventing unsupported facts.
@@ -38,11 +38,12 @@ The following authoritative resources are linked for data integration, further v
 - [WHO Global Health Observatory](https://www.who.int/data/gho)
 - [WHO World Malaria Report](https://www.who.int/teams/global-malaria-programme/reports/world-malaria-report)
 - [Malaria Atlas Project Data Platform](https://data.malariaatlas.org/) — integrated MAP Trends API for explicit-release national and admin-1 estimates, plus an interactive WMS raster explorer for release-advertised high-resolution layers. Raster layers are resolved against WMS GetCapabilities before display.
+- [geoBoundaries](https://www.geoboundaries.org/) — open ADM0 boundary geometry used to focus the interactive map on a selected country; check the boundary metadata for dataset-specific licensing and citation.
 - [World Bank Open Data](https://data.worldbank.org/)
 - [UNICEF Data](https://data.unicef.org/)
 - [Our World in Data — Malaria](https://ourworldindata.org/malaria)
 
-No API key is required for the core World Bank, WHO GHO, Our World in Data and MAP public requests. MAP estimates are release-specific modelled data. The application selects an explicit release, checks metric availability from release metadata, resolves admin-1 units against that release's boundary version, decodes JSON-stat dimensions by their published category indexes, and resolves raster layer names against GeoServer WMS capabilities before displaying a 5 km spatial layer. Zero values are flagged because MAP documents that zero can also mean no estimate is available. Lower/upper bounds are fetched only where the source provides genuine uncertainty bounds; effective treatment and IRS do not have such bounds. Source availability, API uptime, country coverage and indicator coverage vary. The application reports unavailable indicators rather than silently filling or fabricating values. Some World Bank indicator codes may return no observations for a given period or country; verify the live connector status before interpretation.
+No API key is required for the core World Bank, WHO GHO, Our World in Data and MAP public requests. MAP estimates are release-specific modelled data. The application selects an explicit release, checks metric availability from release metadata, resolves admin-1 units against that release's boundary version, decodes JSON-stat dimensions by their published category indexes, and resolves raster layer names against GeoServer WMS capabilities before display. The raster explorer retrieves a simplified country ADM0 GeoJSON boundary from geoBoundaries, validates the download host and polygon coordinates, and zooms the interactive WMS view to that country. Zero values are flagged because MAP documents that zero can also mean no estimate is available. Lower/upper bounds are fetched only where the source provides genuine uncertainty bounds; effective treatment and IRS do not have such bounds. Source availability, API uptime, country coverage and indicator coverage vary. The application reports unavailable indicators rather than silently filling or fabricating values. Some World Bank indicator codes may return no observations for a given period or country; verify the live connector status before interpretation.
 
 ## Supplementary CSV format
 
@@ -53,7 +54,7 @@ Required columns: `iso3,country,year,indicator_code,value,source`. Optional colu
 - Modelled estimates, reported counts and contextual health indicators are not interchangeable. MAP national and admin-1 outputs are modelled estimates, not individually reported surveillance records.
 - Latest available years can differ between countries and indicators; comparisons should show the reference year.
 - A missing observation is not evidence of zero burden or zero intervention coverage.
-- Country-level choropleths do not identify local outbreaks or subnational transmission risk. MAP admin-1 estimates provide subnational modelled summaries, not real-time outbreak detection; MAP's 5 km raster services are not yet rendered directly in this application.
+- Country-level choropleths do not identify local outbreaks or subnational transmission risk. MAP admin-1 estimates provide subnational modelled summaries, not real-time outbreak detection. Country boundary overlays are administrative reference geometry, not epidemiological boundaries; the MAP raster remains a modelled surface.
 - Linear extrapolation is exploratory and is not an outbreak prediction, early-warning alert, clinical decision aid or substitute for national surveillance.
 - The platform is for research, policy analysis and programme intelligence. It does not diagnose malaria or recommend individual treatment.
 
