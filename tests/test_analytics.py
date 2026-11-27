@@ -33,6 +33,19 @@ def test_filter_and_latest(observations):
     latest = latest_country_values(observations, "SH.MLR.INCD.P3")
     assert dict(zip(latest.iso3, latest.year)) == {"SOM":2023,"KEN":2023}
 
+def test_latest_country_values_preserves_multiple_sources_for_latest_year(observations):
+    extra = pd.DataFrame([{
+        "iso3":"SOM", "country":"Somalia", "year":2023,
+        "indicator_code":"SH.MLR.INCD.P3", "value":32.0, "source":"Second source"
+    }])
+    combined = pd.concat([observations, extra], ignore_index=True)
+    latest = latest_country_values(combined, "SH.MLR.INCD.P3")
+    somalia = latest[latest.iso3 == "SOM"]
+    assert len(somalia) == 2
+    assert set(somalia.source) == {"Test", "Second source"}
+    assert set(somalia.value) == {35.0, 32.0}
+
+
 def test_year_over_year(observations):
     result = year_over_year(observations, "SH.MLR.INCD.P3", "SOM")
     assert result.iloc[-1]["absolute_change"] == -5
