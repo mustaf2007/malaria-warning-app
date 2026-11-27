@@ -260,7 +260,8 @@ elif nav == "Surveillance & Trends":
         if not trend.empty:
             iso=st.selectbox("Country for year-on-year analysis",sorted(trend.iso3.unique()))
             changes=year_over_year(raw,code,iso)
-            st.dataframe(changes[["year","value","absolute_change","percent_change","source"]],use_container_width=True,hide_index=True)
+            st.caption("Year-on-year changes are calculated only when observations are available for consecutive calendar years. Larger gaps are shown without a one-year change.")
+            st.dataframe(changes[["year","value","year_gap","absolute_change","percent_change","change_status","source"]].rename(columns={"year":"Year","value":"Value","year_gap":"Years since prior observation","absolute_change":"Change vs prior year","percent_change":"Change (%)","change_status":"Comparison status","source":"Source"}),use_container_width=True,hide_index=True)
 
 elif nav == "Spatial Intelligence":
     st.subheader("Geographic distribution")
