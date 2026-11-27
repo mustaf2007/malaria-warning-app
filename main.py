@@ -74,13 +74,26 @@ with st.sidebar:
         load_data.clear(); who_catalogue.clear(); map_releases.clear(); map_admin_units.clear(); map_series.clear(); map_raster_preview.clear(); map_wms_layer.clear(); map_country_boundary.clear(); map_admin1_boundary.clear(); st.rerun()
     st.caption("Cache policy: core country observations 15 minutes; WHO catalogue and MAP reference/spatial data up to 24 hours.")
 st.markdown(f"""<style>
-.stApp{{background:{bg};color:{fg}}}[data-testid="stSidebar"]{{background:{panel}}}
-[data-testid="stMetric"]{{background:{panel};border:1px solid rgba(130,170,160,.22);padding:15px;border-radius:14px}}
-[data-testid="stMetricLabel"] p{{color:{muted}!important}}[data-testid="stMetricValue"]{{color:{fg}!important}}
-.ami-hero{{padding:24px 28px;border-radius:18px;background:linear-gradient(120deg,{panel},rgba(20,85,70,.4));border:1px solid rgba(130,170,160,.2);margin-bottom:18px}}
-.ami-eyebrow{{color:{accent};text-transform:uppercase;letter-spacing:.14em;font-size:.72rem;font-weight:700}}
+.stApp{{background:{bg};color:{fg}}}
+[data-testid="stSidebar"]{{background:{panel};border-right:1px solid rgba(130,170,160,.18)}}
+[data-testid="stMetric"]{{background:{panel};border:1px solid rgba(130,170,160,.24);padding:16px 17px;border-radius:15px;box-shadow:0 5px 18px rgba(0,0,0,.06)}}
+[data-testid="stMetricLabel"] p{{color:{muted}!important;font-size:.82rem}}
+[data-testid="stMetricValue"]{{color:{fg}!important;font-weight:700}}
+[data-testid="stButton"] button,[data-testid="stDownloadButton"] button{{border-radius:10px;font-weight:600;min-height:2.55rem}}
+[data-testid="stDataFrame"]{{border:1px solid rgba(130,170,160,.18);border-radius:12px;overflow:hidden}}
+[data-testid="stPlotlyChart"]{{border:1px solid rgba(130,170,160,.14);border-radius:14px;padding:5px;background:{panel}}}
+.ami-hero{{position:relative;overflow:hidden;padding:30px 32px;border-radius:20px;background:linear-gradient(118deg,{panel} 0%,rgba(20,85,70,.52) 72%,rgba(20,85,70,.2) 100%);border:1px solid rgba(130,170,160,.25);margin:4px 0 20px;box-shadow:0 12px 32px rgba(0,0,0,.10)}}
+.ami-eyebrow{{color:{accent};text-transform:uppercase;letter-spacing:.16em;font-size:.72rem;font-weight:800;margin-bottom:8px}}
+.ami-hero h1{{font-size:clamp(1.8rem,3.4vw,2.65rem);line-height:1.12;margin:0 0 10px;color:{fg}}}
+.ami-lede{{color:{muted};font-size:1.02rem;max-width:850px;line-height:1.55}}
+.ami-pill-row{{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}}
+.ami-pill{{display:inline-block;padding:6px 11px;border:1px solid rgba(150,190,180,.28);border-radius:999px;color:{fg};font-size:.78rem;background:rgba(120,160,150,.09)}}
+.ami-section-note{{color:{muted};font-size:.9rem;margin-top:-5px;margin-bottom:14px}}
+[data-testid="stSidebar"] [role="radiogroup"]{{gap:3px}}
+[data-testid="stSidebar"] [role="radiogroup"] label{{padding:5px 8px;border-radius:8px}}
+@media(max-width:700px){{.ami-hero{{padding:22px 20px}}}}
 </style>""", unsafe_allow_html=True)
-st.markdown(f'<div class="ami-hero"><div class="ami-eyebrow">Continental public-health intelligence</div><h1>🦟 {APP_NAME}</h1><div style="color:{muted}">Evidence-led malaria burden, trends, interventions and country comparisons across Africa.</div></div>', unsafe_allow_html=True)
+st.markdown(f'<section class="ami-hero"><div class="ami-eyebrow">Africa-wide · Open data · Evidence-led</div><h1>🦟 {APP_NAME}</h1><div class="ami-lede">A practical intelligence platform for understanding malaria burden, tracking trends, comparing countries and exploring prevention evidence across Africa.</div><div class="ami-pill-row"><span class="ami-pill">Country intelligence</span><span class="ami-pill">Subnational & spatial estimates</span><span class="ami-pill">Prevention & health systems</span><span class="ami-pill">Research-ready reports</span></div></section>', unsafe_allow_html=True)
 
 with st.spinner("Connecting to public open-data sources…"):
     try:
@@ -135,10 +148,22 @@ elif not countries:
     st.warning("Country metadata is temporarily unavailable. Country filters are using country codes/names present in the loaded observations.")
 if not raw.empty and not any(status.get("status") == "loaded" for status in statuses):
     st.warning("No source currently reports a successful load. Try Refresh public data in the sidebar.")
+st.sidebar.markdown("### Explore the platform")
+st.sidebar.caption("Start with the overview, then move from country evidence to spatial analysis, insights and reports.")
 nav = st.sidebar.radio("WORKSPACES", [
- "Executive Overview","Country Intelligence","Country Benchmarking","Surveillance & Trends","Spatial Intelligence",
- "Prevention & Health Systems","MAP Subnational Intelligence","MAP 5 km Raster Explorer","Forecasting & Risk Analysis","AI Malaria Analyst",
- "Reports & Downloads","Data Quality & Sources"])
+ "Executive Overview",
+ "Country Intelligence",
+ "Country Benchmarking",
+ "Surveillance & Trends",
+ "Spatial Intelligence",
+ "MAP Subnational Intelligence",
+ "MAP 5 km Raster Explorer",
+ "Prevention & Health Systems",
+ "Exploratory Forecasts",
+ "AI Malaria Analyst",
+ "Reports & Downloads",
+ "Data Quality & Sources"
+], label_visibility="collapsed")
 view = filter_observations(raw,countries=selected_iso or None,start_year=year_range[0],end_year=year_range[1]) if not raw.empty else raw
 codes = sorted(raw["indicator_code"].dropna().unique()) if not raw.empty else []
 malaria_codes = [c for c in codes if c.startswith("SH.MLR") or c == "SH.STA.MALR" or c.startswith("OWID:")]
@@ -250,7 +275,7 @@ elif nav == "Country Benchmarking":
                 st.warning(str(exc))
 
 elif nav == "Surveillance & Trends":
-    st.subheader("Surveillance and epidemiological trends")
+    st.subheader("Trends and year-on-year analysis")
     if not codes: st.info("No indicator series are loaded.")
     else:
         code=st.selectbox("Indicator",codes,format_func=label)
@@ -264,7 +289,7 @@ elif nav == "Surveillance & Trends":
             st.dataframe(changes[["year","value","year_gap","absolute_change","percent_change","change_status","source"]].rename(columns={"year":"Year","value":"Value","year_gap":"Years since prior observation","absolute_change":"Change vs prior year","percent_change":"Change (%)","change_status":"Comparison status","source":"Source"}),use_container_width=True,hide_index=True)
 
 elif nav == "Spatial Intelligence":
-    st.subheader("Geographic distribution")
+    st.subheader("Country-level malaria geography")
     if not codes: st.info("No spatial observations are loaded.")
     else:
         code=st.selectbox("Map indicator",codes,format_func=label)
@@ -588,8 +613,8 @@ elif nav == "MAP 5 km Raster Explorer":
     except Exception as exc:
         st.error(f"MAP raster catalogue unavailable: {exc}")
 
-elif nav == "Forecasting & Risk Analysis":
-    st.subheader("Exploratory trend modelling")
+elif nav == "Exploratory Forecasts":
+    st.subheader("Explore possible future trajectories")
     st.warning("Statistical extrapolations only—not outbreak predictions, operational alerts or clinical advice. Weather, vector ecology, interventions and reporting changes are not modelled.")
     if not codes: st.info("No time series available.")
     else:
@@ -846,4 +871,4 @@ elif nav == "Data Quality & Sources":
     st.caption(f"Rendered {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}. Cache duration varies by connector; observation reference years do not indicate provider update timestamps.")
 
 st.divider()
-st.caption("Africa Malaria Intelligence · Open-data research platform · Not a real-time case surveillance system · Verify source definitions before policy use.")
+st.caption("Africa Malaria Intelligence · Open-data research and programme intelligence · Modelled estimates and reported observations are labelled separately · Not a real-time case surveillance system.")
