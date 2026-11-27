@@ -314,11 +314,7 @@ def build_africa_report_pdf(
     ]
     overview_rows = [["Indicator", "Countries", "Observations", "Year span", "Latest year"]]
     for code in selected:
-        valid = country_year[
-            data["indicator_code"].astype(str).eq(code).reindex(country_year.index, fill_value=False)
-        ] if False else _country_year_summary(
-            data[data["indicator_code"].astype(str) == code]
-        )
+        valid = _country_year_summary(data[data["indicator_code"].astype(str) == code])
         overview_rows.append([
             _safe(labels.get(code, code)), str(valid["iso3"].nunique()), str(len(valid)),
             f"{int(valid['year'].min())}–{int(valid['year'].max())}" if not valid.empty else "—",
