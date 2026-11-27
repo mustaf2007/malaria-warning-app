@@ -56,3 +56,16 @@ def test_map_admin1_filters_by_iso3(monkeypatch):
     rows=data_sources.fetch_map_admin1("NGA","2023_mg_5k")
     assert [r["name"] for r in rows]==["Kano","Lagos"]
     assert all(r["iso3"]=="NGA" for r in rows)
+
+def test_map_jsonstat_supports_array_category_indexes():
+    payload = {
+        "dimension": {
+            "ID": {"category": {"index": ["103", "104"], "label": {"103": "Kano", "104": "Lagos"}}},
+            "Year": {"category": {"index": ["2020", "2021"], "label": {"2020": "2020", "2021": "2021"}}},
+        },
+        "value": [1, 2, 3, 4],
+    }
+    rows = data_sources._jsonstat_rows(payload, "admin1", "Pf_incidence-count", "mean", "https://example.test")
+    assert [(r["admin1_id"], r["year"], r["value"]) for r in rows] == [
+        ("103", 2020, 1.0), ("103", 2021, 2.0), ("104", 2020, 3.0), ("104", 2021, 4.0)
+    ]
