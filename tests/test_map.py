@@ -156,7 +156,7 @@ def test_map_wms_layer_preserves_exact_advertised_time(monkeypatch):
     monkeypatch.setattr(data_sources.requests,"get",lambda *args,**kwargs:Response())
     info=data_sources.resolve_map_wms_layer("Malaria__layer_a")
     assert data_sources.map_wms_time_for_year(info,2021)=="2021-01-01T00:00:00.000Z"
-    with pytest.raises(ValueError,match="outside this raster"):
+    with pytest.raises(ValueError,match="not available"):
         data_sources.map_wms_time_for_year(info,2020)
 
 def test_static_map_raster_does_not_accept_year():
