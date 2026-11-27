@@ -87,7 +87,6 @@ st.markdown(f"""<style>
 [data-testid="stSidebar"] [role="radiogroup"] label{{padding:5px 8px;border-radius:8px}}
 @media(max-width:700px){{.ami-hero{{padding:22px 20px}}}}
 </style>""", unsafe_allow_html=True)
-st.markdown(f'<section class="ami-hero"><div class="ami-eyebrow">Africa-wide · Open data · Evidence-led</div><h1>🦟 {APP_NAME}</h1><div class="ami-lede">A practical intelligence platform for understanding malaria burden, tracking trends, comparing countries and exploring prevention evidence across Africa.</div><div class="ami-pill-row"><span class="ami-pill">Country intelligence</span><span class="ami-pill">Subnational & spatial estimates</span><span class="ami-pill">Prevention & health systems</span><span class="ami-pill">Research-ready reports</span></div></section>', unsafe_allow_html=True)
 
 with st.spinner("Connecting to public open-data sources…"):
     try:
@@ -104,23 +103,41 @@ if countries and not raw.empty:
     raw = raw[raw["iso3"].isin(country_names)].copy()
 if st.session_state.get("who_rows"):
     raw = pd.concat([raw, pd.DataFrame(st.session_state.who_rows)], ignore_index=True)
+st.sidebar.markdown("### Explore the platform")
+st.sidebar.caption("Move from the continental overview to country evidence, spatial analysis and reports.")
+nav = st.sidebar.radio("WORKSPACES", [
+ "Executive Overview",
+ "Country Intelligence",
+ "Country Benchmarking",
+ "Surveillance & Trends",
+ "Spatial Intelligence",
+ "Prevention & Health Systems",
+ "MAP Subnational Intelligence",
+ "Exploratory Forecasts",
+ "AI Malaria Analyst",
+ "Reports & Downloads",
+ "Data Quality & Sources"
+], label_visibility="collapsed")
+
 with st.sidebar:
-    st.markdown("### Analysis filters")
-    iso_options = [c["iso3"] for c in countries] or sorted(raw.get("iso3",pd.Series(dtype=str)).dropna().unique())
-    # Start with the complete African country set; users can narrow it in the multiselect.
-    selected_iso = st.multiselect("Countries", iso_options, default=iso_options)
-    years = sorted(raw["year"].dropna().unique().tolist()) if not raw.empty else []
-    year_min, year_max = year_range_bounds(years)
-    # Keep the full requested analysis window selectable even when sources have gaps.
-    year_range = st.slider(
-        "Reference period",
-        int(year_min),
-        int(year_max),
-        (int(DEFAULT_START_YEAR), int(DEFAULT_END_YEAR)),
-        step=1,
-        help="The filter spans 1960 through the current year. Sources contribute only the years they actually publish.",
-    )
-    upload = st.file_uploader("Upload supplementary CSV", type=["csv"], help="Required columns: iso3,country,year,indicator_code,value,source. Session-only.")
+    with st.expander("Analysis filters", expanded=False):
+        iso_options = [c["iso3"] for c in countries] or sorted(raw.get("iso3",pd.Series(dtype=str)).dropna().unique())
+        # Start with the complete African country set; users can narrow it in the multiselect.
+        selected_iso = st.multiselect("Countries", iso_options, default=iso_options)
+        years = sorted(raw["year"].dropna().unique().tolist()) if not raw.empty else []
+        year_min, year_max = year_range_bounds(years)
+        # Keep the full requested analysis window selectable even when sources have gaps.
+        year_range = st.slider(
+            "Reference period",
+            int(year_min),
+            int(year_max),
+            (int(DEFAULT_START_YEAR), int(DEFAULT_END_YEAR)),
+            step=1,
+            help="The filter spans 1960 through the current year. Sources contribute only the years they actually publish.",
+        )
+    with st.expander("Supplementary data", expanded=False):
+        upload = st.file_uploader("Upload CSV", type=["csv"], help="Required columns: iso3,country,year,indicator_code,value,source. Session-only.")
+        st.caption("Files are used for this session only.")
 if upload is not None:
     try:
         extra = pd.read_csv(upload)
@@ -142,22 +159,11 @@ elif not countries:
     st.warning("Country metadata is temporarily unavailable. Country filters are using country codes/names present in the loaded observations.")
 if not raw.empty and not any(status.get("status") == "loaded" for status in statuses):
     st.warning("No source currently reports a successful load. Try Refresh public data in the sidebar.")
-st.sidebar.markdown("### Explore the platform")
-st.sidebar.caption("Start with the overview, then move from country evidence to spatial analysis, insights and reports.")
-nav = st.sidebar.radio("WORKSPACES", [
- "Executive Overview",
- "Country Intelligence",
- "Country Benchmarking",
- "Surveillance & Trends",
- "Spatial Intelligence",
- "MAP Subnational Intelligence",
-  "Prevention & Health Systems",
- "Exploratory Forecasts",
- "AI Malaria Analyst",
- "Reports & Downloads",
- "Data Quality & Sources"
-], label_visibility="collapsed")
 view = filter_observations(raw,countries=selected_iso or None,start_year=year_range[0],end_year=year_range[1]) if not raw.empty else raw
+
+if nav == "Executive Overview":
+    st.markdown(f'<section class="ami-hero"><div class="ami-eyebrow">AFRICA-WIDE · OPEN DATA · EVIDENCE-LED</div><h1>🦟 {APP_NAME}</h1><div class="ami-lede">Open-data intelligence for understanding malaria burden, monitoring long-term trends, comparing countries and exploring prevention evidence across Africa.</div><div class="ami-pill-row"><span class="ami-pill">Country profiles & comparisons</span><span class="ami-pill">Spatial & subnational evidence</span><span class="ami-pill">Prevention & health systems</span><span class="ami-pill">Reports & downloads</span></div></section>', unsafe_allow_html=True)
+
 codes = sorted(raw["indicator_code"].dropna().unique()) if not raw.empty else []
 malaria_codes = [c for c in codes if c.startswith("SH.MLR") or c == "SH.STA.MALR" or c.startswith("OWID:")]
 default_code = next((c for c in ["SH.MLR.INCD.P3","SH.MLR.CASES","SH.MLR.DEATHS","SH.MLR.MORT"] if c in codes), codes[0] if codes else None)
