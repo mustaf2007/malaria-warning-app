@@ -9,7 +9,7 @@ import streamlit as st
 from malaria_intel.analytics import answer_data_question, filter_observations, forecast_linear, latest_country_values, validate_observations, year_over_year
 from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS
 from malaria_intel.data_sources import DataSourceError, fetch_african_countries, fetch_indicator_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, fetch_owid_bundle, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series, fetch_map_wms_preview, resolve_map_wms_layer, map_wms_time_for_year
-from malaria_intel.spatial import fetch_country_boundary
+from malaria_intel.spatial import fetch_country_boundary, fetch_admin1_boundaries, join_admin1_estimates_to_geojson
 
 st.set_page_config(page_title=APP_NAME, page_icon="🦟", layout="wide", initial_sidebar_state="expanded")
 THEMES = {
@@ -45,6 +45,9 @@ def map_wms_layer(layer_ref):
 @st.cache_data(ttl=86400, show_spinner=False)
 def map_country_boundary(iso3):
     return fetch_country_boundary(iso3)
+@st.cache_data(ttl=86400, show_spinner=False)
+def map_admin1_boundary(iso3):
+    return fetch_admin1_boundaries(iso3)
 def label(code):
     x = next((i for i in INDICATORS if i.code == code), None)
     return f"{x.name} · {x.unit}" if x else EXTERNAL_INDICATOR_LABELS.get(code, code)
@@ -68,7 +71,7 @@ with st.sidebar:
     theme_name = st.selectbox("Appearance", list(THEMES))
     bg,panel,accent,fg,muted = THEMES[theme_name]
     if st.button("↻ Refresh public data", use_container_width=True):
-        load_data.clear(); who_catalogue.clear(); map_releases.clear(); map_admin_units.clear(); map_series.clear(); map_raster_preview.clear(); map_wms_layer.clear(); map_country_boundary.clear(); st.rerun()
+        load_data.clear(); who_catalogue.clear(); map_releases.clear(); map_admin_units.clear(); map_series.clear(); map_raster_preview.clear(); map_wms_layer.clear(); map_country_boundary.clear(); map_admin1_boundary.clear(); st.rerun()
     st.caption("Public sources cached for 24 hours.")
 st.markdown(f"""<style>
 .stApp{{background:{bg};color:{fg}}}[data-testid="stSidebar"]{{background:{panel}}}
@@ -256,6 +259,21 @@ elif nav == "MAP Subnational Intelligence":
                                             result = result.merge(lower[keys+["value"]].rename(columns={"value":"lower_bound"}),on=keys,how="left")
                                             result = result.merge(upper[keys+["value"]].rename(columns={"value":"upper_bound"}),on=keys,how="left")
                                     result["country"] = result["country"].replace("", country_names.get(country_iso,country_iso))
+                                    if level == "admin1":
+                                        st.session_state.map_admin1_join = None
+                                        st.session_state.map_admin1_boundary_meta = None
+                                        try:
+                                            boundary_data = map_admin1_boundary(country_iso)
+                                            joined = join_admin1_estimates_to_geojson(
+                                                boundary_data["geojson"], admin_choices, result.to_dict("records")
+                                            )
+                                            st.session_state.map_admin1_join = joined
+                                            st.session_state.map_admin1_boundary_meta = boundary_data
+                                        except Exception as boundary_exc:
+                                            st.warning(f"Subnational boundary map unavailable; the MAP time series and table remain available. Details: {boundary_exc}")
+                                    else:
+                                        st.session_state.map_admin1_join = None
+                                        st.session_state.map_admin1_boundary_meta = None
                                     st.session_state.map_result = result
                                     st.session_state.map_context = {
                                         "metric":metric,"version":release["version"],"level":level,
@@ -280,6 +298,54 @@ elif nav == "MAP Subnational Intelligence":
                         fig.add_scatter(x=plot.year,y=plot.lower_bound,mode="lines",fill="tonexty",line=dict(width=0),name="Published uncertainty range",hoverinfo="skip")
                     fig.update_layout(hovermode="x unified",margin=dict(l=8,r=8,t=55,b=8))
                     st.plotly_chart(fig,use_container_width=True)
+                    if context["level"] == "admin1":
+                        joined = st.session_state.get("map_admin1_join")
+                        boundary_meta = st.session_state.get("map_admin1_boundary_meta")
+                        st.markdown("#### 3. Subnational spatial distribution")
+                        if joined and boundary_meta and joined["matched_units"] > 0 and joined["rows"]:
+                            joined_rows = pd.DataFrame(joined["rows"])
+                            map_years = sorted(joined_rows["year"].dropna().astype(int).unique().tolist())
+                            selected_map_year = st.selectbox(
+                                "Map reference year", map_years,
+                                index=len(map_years)-1, key="map_admin1_spatial_year"
+                            )
+                            map_rows = joined_rows[joined_rows["year"].astype(int) == int(selected_map_year)].copy()
+                            if not map_rows.empty:
+                                spatial_fig = px.choropleth(
+                                    map_rows,
+                                    geojson=joined["geojson"],
+                                    locations="map_admin1_id",
+                                    featureidkey="properties.map_admin1_id",
+                                    color="value",
+                                    hover_name="admin1_name",
+                                    hover_data={"map_admin1_id":True,"year":True,"value":":,.3g"},
+                                    color_continuous_scale="YlOrRd",
+                                    title=f"{MAP_METRICS[context['metric']]['name']} · {selected_map_year}",
+                                    labels={"value":MAP_METRICS[context["metric"]]["unit"]},
+                                )
+                                spatial_fig.update_geos(fitbounds="locations", visible=False, showcountries=True)
+                                spatial_fig.update_layout(margin=dict(l=0,r=0,t=55,b=0),height=560)
+                                st.plotly_chart(spatial_fig,use_container_width=True)
+                            a,b=st.columns(2)
+                            a.metric("Boundary units matched",f"{joined['matched_units']:,}")
+                            b.metric("MAP admin-1 units",f"{joined['total_map_units']:,}")
+                            st.caption(
+                                f"Boundary year: {boundary_meta['boundary_year']} · "
+                                f"Boundary source: {boundary_meta['boundary_source']} · "
+                                f"Licence: {boundary_meta['license']}"
+                            )
+                            st.download_button(
+                                "Download mapped admin-1 estimates · CSV",
+                                joined_rows.to_csv(index=False).encode("utf-8"),
+                                f"{context['country'].lower().replace(' ','_')}_map_admin1_{context['metric']}.csv",
+                                "text/csv",
+                            )
+                            if joined["unmatched_map_names"]:
+                                with st.expander("Administrative units not matched to boundary geometry"):
+                                    st.caption("Only unique exact name matches after conservative text normalisation are mapped. Unmatched names are excluded rather than assigned to a possibly incorrect polygon.")
+                                    st.write(", ".join(joined["unmatched_map_names"]))
+                        else:
+                            st.warning("A subnational map could not be produced because no MAP admin-1 estimates could be safely matched to the available boundary geometry. The time-series chart and MAP estimate table remain available.")
                     if "possible_missing_zero" in result and result.possible_missing_zero.any():
                         st.warning("MAP documents that some zero values can indicate unavailable estimates. Review release availability and neighbouring years before interpreting zero as no burden.")
                     st.dataframe(result,use_container_width=True,hide_index=True)
