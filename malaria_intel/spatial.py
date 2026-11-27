@@ -1,6 +1,7 @@
 """Country boundary retrieval for country-focused malaria mapping."""
 from __future__ import annotations
 
+import math
 import re
 import unicodedata
 from typing import Any
@@ -226,7 +227,7 @@ def join_admin1_estimates_to_geojson(
         value = row.get("value")
         if unit_id not in matched_ids or value is None:
             continue
-        if isinstance(value, (int, float)) and not __import__("math").isfinite(value):
+        if isinstance(value, (int, float)) and not math.isfinite(value):
             continue
         joined = dict(row)
         joined["map_admin1_id"] = unit_id
