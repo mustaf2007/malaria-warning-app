@@ -479,6 +479,8 @@ def resolve_map_wms_layer(layer_ref: str) -> dict[str, Any]:
         root = ET.fromstring(response.content)
     except ET.ParseError as exc:
         raise DataSourceError("MAP WMS capabilities returned invalid XML.") from exc
+    if root.tag.rsplit("}", 1)[-1] not in {"WMS_Capabilities", "WMT_MS_Capabilities"}:
+        raise DataSourceError("MAP WMS capabilities endpoint returned an unexpected XML document.")
     candidates = {layer_ref}
     if "__" in layer_ref:
         prefix, suffix = layer_ref.split("__", 1)
@@ -576,10 +578,21 @@ def fetch_map_wms_preview(layer_ref: str, year: int | None, width: int = 1600, h
     )
     response.raise_for_status()
     content_type = response.headers.get("Content-Type", "").lower()
-    if "image/png" not in content_type or not response.content.startswith(b"\x89PNG\r\n\x1a\n"):
+    content = response.content
+    if "image/png" not in content_type or not content.startswith(b"\x89PNG\r\n\x1a\n"):
         message = response.text[:240] if "text" in content_type or "xml" in content_type else "non-PNG response"
         raise DataSourceError(f"MAP WMS did not return a PNG raster image: {message}")
-    return response.content
+    # Check the PNG IHDR before passing bytes to the UI.
+    if len(content) < 24 or content[8:12] != b"\x00\x00\x00\r" or content[12:16] != b"IHDR":
+        raise DataSourceError("MAP WMS returned a truncated or invalid PNG header.")
+    import struct
+    image_width, image_height = struct.unpack(">II", content[16:24])
+    if image_width != width or image_height != height:
+        raise DataSourceError(
+            f"MAP WMS PNG dimensions do not match the request: expected {width}x{height}, "
+            f"received {image_width}x{image_height}."
+        )
+    return content
 
 
 
