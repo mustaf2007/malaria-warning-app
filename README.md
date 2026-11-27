@@ -13,7 +13,7 @@ A Streamlit-based, open-data research and programme-intelligence workspace for m
 - Prevention, population vulnerability and health-system context indicators where data is available.
 - Exploratory linear trend extrapolation with an explicit non-operational warning.
 - Model-free analyst that computes answers from loaded observations rather than inventing unsupported facts.
-- CSV and Excel exports, supplementary CSV upload, source status and data-quality reporting.
+- Country-specific PDF intelligence reports with indicator summaries, historical trend charts, source coverage and interpretation safeguards; CSV and Excel exports, supplementary CSV upload, source status and data-quality reporting.
 - Emerald, navy, light and dark appearance themes.
 - World Bank API connector and WHO GHO malaria-indicator catalogue discovery.
 
@@ -44,6 +44,10 @@ The following authoritative resources are linked for data integration, further v
 - [Our World in Data — Malaria](https://ourworldindata.org/malaria)
 
 No API key is required for the core World Bank, WHO GHO, Our World in Data and MAP public requests. MAP estimates are release-specific modelled data. The application selects an explicit release, checks metric availability from release metadata, resolves admin-1 units against that release's boundary version, decodes JSON-stat dimensions by their published category indexes, and resolves raster layer names against GeoServer WMS capabilities before display. The raster explorer retrieves a simplified country ADM0 GeoJSON boundary from geoBoundaries, validates the download host and polygon coordinates, and zooms the interactive WMS view to that country. For MAP admin-1 estimates, the subnational workspace can retrieve geoBoundaries ADM1 polygons and join them to MAP units only through unique exact administrative-name matches after conservative text normalisation. Ambiguous and unmatched names are excluded from the choropleth rather than guessed; the interface reports match coverage and keeps the original MAP time series and table available. Zero values are flagged because MAP documents that zero can also mean no estimate is available. Lower/upper bounds are fetched only where the source provides genuine uncertainty bounds; effective treatment and IRS do not have such bounds. Source availability, API uptime, country coverage and indicator coverage vary. The application reports unavailable indicators rather than silently filling or fabricating values. Some World Bank indicator codes may return no observations for a given period or country; verify the live connector status before interpretation.
+
+## Country intelligence PDF reports
+
+The Reports & Downloads workspace can generate a country-specific PDF from the currently loaded observations and a selected reference period. Reports include latest and earliest available values by indicator, compact historical trend charts, source-level observation coverage and explicit interpretation safeguards. The report does not impute missing values or fetch new data independently; it reflects the active in-memory dataset, including any validated session upload or selected WHO observations. Indicator identifiers are retained so definitions can be verified in the source catalogue. Install dependencies from `requirements.txt` (including ReportLab) to enable PDF generation.
 
 ## Supplementary CSV format
 
