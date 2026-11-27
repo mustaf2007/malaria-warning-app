@@ -304,12 +304,37 @@ def fetch_map_releases() -> list[dict[str, Any]]:
     for item in payload:
         if not isinstance(item, dict) or not item.get("version"):
             continue
+        version = item["version"]
+        if not isinstance(version, (str, int)) or isinstance(version, bool) or not str(version).strip():
+            raise DataSourceError("MAP release metadata contains an invalid release version.")
+        raw_end_year = item.get("dataEndYear")
+        if raw_end_year in (None, ""):
+            data_end_year = 0
+        elif isinstance(raw_end_year, int) and not isinstance(raw_end_year, bool):
+            data_end_year = raw_end_year
+        elif isinstance(raw_end_year, str) and raw_end_year.isdigit():
+            data_end_year = int(raw_end_year)
+        else:
+            raise DataSourceError(f"MAP release {version} has an invalid data end year.")
+        if data_end_year and not 1900 <= data_end_year <= 2100:
+            raise DataSourceError(f"MAP release {version} has an out-of-range data end year.")
+        provisional = item.get("provisional", False)
+        if not isinstance(provisional, bool):
+            raise DataSourceError(f"MAP release {version} has an invalid provisional flag.")
+        geo_refs = item.get("geoServerRefs")
+        if geo_refs is None:
+            geo_refs = {}
+        if not isinstance(geo_refs, dict):
+            raise DataSourceError(f"MAP release {version} has invalid GeoServer references.")
+        admin_version = geo_refs.get("mapAdminVersion", "")
+        if not isinstance(admin_version, str):
+            raise DataSourceError(f"MAP release {version} has an invalid administrative boundary version.")
         releases.append({
-            "version": str(item["version"]),
-            "data_end_year": int(item.get("dataEndYear") or 0),
-            "provisional": bool(item.get("provisional", False)),
-            "admin_version": (item.get("geoServerRefs") or {}).get("mapAdminVersion", ""),
-            "geo_server_refs": item.get("geoServerRefs") or {},
+            "version": str(version),
+            "data_end_year": data_end_year,
+            "provisional": provisional,
+            "admin_version": admin_version,
+            "geo_server_refs": geo_refs,
         })
     return releases
 

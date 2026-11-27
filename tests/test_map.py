@@ -243,3 +243,44 @@ def test_map_wms_preview_rejects_wrong_png_dimensions(monkeypatch):
     monkeypatch.setattr(data_sources.requests,"get",fake_get)
     with pytest.raises(data_sources.DataSourceError,match="dimensions do not match"):
         data_sources.fetch_map_wms_preview("Malaria__layer_a",2024)
+
+
+def test_map_releases_normalizes_valid_metadata(monkeypatch):
+    payload = [{
+        "version": 202608, "dataEndYear": "2025", "provisional": False,
+        "geoServerRefs": {"mapAdminVersion": "2023_mg_5k"},
+    }]
+    monkeypatch.setattr(data_sources, "_get_json", lambda *args, **kwargs: payload)
+    releases = data_sources.fetch_map_releases()
+    assert releases == [{
+        "version": "202608", "data_end_year": 2025, "provisional": False,
+        "admin_version": "2023_mg_5k",
+        "geo_server_refs": {"mapAdminVersion": "2023_mg_5k"},
+    }]
+
+
+@pytest.mark.parametrize("value", ["false", "true", 0, 1, None])
+def test_map_releases_rejects_non_boolean_provisional_flag(monkeypatch, value):
+    monkeypatch.setattr(data_sources, "_get_json", lambda *args, **kwargs: [
+        {"version": "202608", "provisional": value}
+    ])
+    with pytest.raises(data_sources.DataSourceError, match="invalid provisional flag"):
+        data_sources.fetch_map_releases()
+
+
+@pytest.mark.parametrize("value", ["twenty-twenty-five", -1, 2200, True])
+def test_map_releases_rejects_invalid_data_end_year(monkeypatch, value):
+    monkeypatch.setattr(data_sources, "_get_json", lambda *args, **kwargs: [
+        {"version": "202608", "dataEndYear": value}
+    ])
+    with pytest.raises(data_sources.DataSourceError, match="data end year"):
+        data_sources.fetch_map_releases()
+
+
+@pytest.mark.parametrize("value", ["not-an-object", [], 12])
+def test_map_releases_rejects_malformed_geoserver_refs(monkeypatch, value):
+    monkeypatch.setattr(data_sources, "_get_json", lambda *args, **kwargs: [
+        {"version": "202608", "geoServerRefs": value}
+    ])
+    with pytest.raises(data_sources.DataSourceError, match="GeoServer references"):
+        data_sources.fetch_map_releases()
