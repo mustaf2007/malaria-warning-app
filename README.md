@@ -9,7 +9,7 @@ A Streamlit-based, open-data research and programme-intelligence workspace for m
 - Executive overview with latest available observations and country coverage.
 - Country profiles and historical indicator trends.
 - Country comparisons and year-on-year change calculations.
-- Country-level choropleth maps plus a dedicated MAP national/subnational time-series workspace using the MAP Trends API and release-specific admin-1 catalogues.
+- Country-level choropleth maps, a MAP national/subnational time-series workspace, and an interactive Africa-wide 5 km raster explorer using release-advertised GeoServer WMS layers.
 - Prevention, population vulnerability and health-system context indicators where data is available.
 - Exploratory linear trend extrapolation with an explicit non-operational warning.
 - Model-free analyst that computes answers from loaded observations rather than inventing unsupported facts.
@@ -33,14 +33,16 @@ The application requests country metadata and indicator observations from the Wo
 
 The following authoritative resources are linked for data integration, further verification and future expansion:
 
+- [MAP public data access guide](https://data.malariaatlas.org/llms.txt) — service endpoints, metric tokens, release handling, spatial services and attribution requirements.
+
 - [WHO Global Health Observatory](https://www.who.int/data/gho)
 - [WHO World Malaria Report](https://www.who.int/teams/global-malaria-programme/reports/world-malaria-report)
-- [Malaria Atlas Project Data Platform](https://data.malariaatlas.org/) — integrated MAP Trends API for explicit-release national and admin-1 malaria burden and intervention estimates. Raster tile ingestion and a full interactive 5 km grid map are not implemented yet; use MAP's own map services for raster exploration.
+- [Malaria Atlas Project Data Platform](https://data.malariaatlas.org/) — integrated MAP Trends API for explicit-release national and admin-1 estimates, plus an interactive WMS raster explorer for release-advertised high-resolution layers. Raster layers are resolved against WMS GetCapabilities before display.
 - [World Bank Open Data](https://data.worldbank.org/)
 - [UNICEF Data](https://data.unicef.org/)
 - [Our World in Data — Malaria](https://ourworldindata.org/malaria)
 
-No API key is required for the core World Bank, WHO GHO, Our World in Data and MAP public requests. MAP estimates are release-specific modelled data. The application selects an explicit release, checks metric availability from release metadata, resolves admin-1 units against that release's boundary version, and decodes JSON-stat dimensions by their published category indexes. Zero values are flagged because MAP documents that zero can also mean no estimate is available. Lower/upper bounds are fetched only where the source provides genuine uncertainty bounds; effective treatment and IRS do not have such bounds. Source availability, API uptime, country coverage and indicator coverage vary. The application reports unavailable indicators rather than silently filling or fabricating values. Some World Bank indicator codes may return no observations for a given period or country; verify the live connector status before interpretation.
+No API key is required for the core World Bank, WHO GHO, Our World in Data and MAP public requests. MAP estimates are release-specific modelled data. The application selects an explicit release, checks metric availability from release metadata, resolves admin-1 units against that release's boundary version, decodes JSON-stat dimensions by their published category indexes, and resolves raster layer names against GeoServer WMS capabilities before displaying a 5 km spatial layer. Zero values are flagged because MAP documents that zero can also mean no estimate is available. Lower/upper bounds are fetched only where the source provides genuine uncertainty bounds; effective treatment and IRS do not have such bounds. Source availability, API uptime, country coverage and indicator coverage vary. The application reports unavailable indicators rather than silently filling or fabricating values. Some World Bank indicator codes may return no observations for a given period or country; verify the live connector status before interpretation.
 
 ## Supplementary CSV format
 

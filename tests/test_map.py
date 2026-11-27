@@ -69,3 +69,69 @@ def test_map_jsonstat_supports_array_category_indexes():
     assert [(r["admin1_id"], r["year"], r["value"]) for r in rows] == [
         ("103", 2020, 1.0), ("103", 2021, 2.0), ("104", 2020, 3.0), ("104", 2021, 4.0)
     ]
+
+def test_resolve_map_wms_layer_matches_release_reference(monkeypatch):
+    class Response:
+        content = b'<WMS_Capabilities><Capability><Layer><Layer><Name>Malaria:202508_Global_Pf_Incidence_Rate</Name></Layer></Layer></Capability></WMS_Capabilities>'
+        def raise_for_status(self):
+            pass
+    captured={}
+    def fake_get(url, **kwargs):
+        captured["url"]=url
+        return Response()
+    monkeypatch.setattr(data_sources.requests,"get",fake_get)
+    result=data_sources.resolve_map_wms_layer("Malaria__202508_Global_Pf_Incidence_Rate")
+    assert result["workspace"]=="Malaria"
+    assert result["layer"]=="Malaria:202508_Global_Pf_Incidence_Rate"
+    assert captured["url"].endswith("/Malaria/ows")
+
+def test_resolve_map_wms_layer_rejects_unadvertised_layer(monkeypatch):
+    class Response:
+        content=b'<WMS_Capabilities><Capability><Layer><Name>some:other_layer</Name></Layer></Capability></WMS_Capabilities>'
+        def raise_for_status(self):
+            pass
+    monkeypatch.setattr(data_sources.requests,"get",lambda *args,**kwargs:Response())
+    with pytest.raises(data_sources.DataSourceError,match="did not advertise"):
+        data_sources.resolve_map_wms_layer("Malaria__202508_Global_Pf_Incidence_Rate")
+
+def test_map_wms_preview_checks_image_and_requests_selected_year(monkeypatch):
+    png=bytes([137,80,78,71,13,10,26,10]) + b"test-image"
+    class Capabilities:
+        content=b'<WMS_Capabilities><Capability><Layer><Name>Malaria:202508_Global_Pf_Incidence_Rate</Name></Layer></Capability></WMS_Capabilities>'
+        headers={"Content-Type":"text/xml"}
+        def raise_for_status(self):
+            pass
+    class ImageResponse:
+        content=png
+        headers={"Content-Type":"image/png"}
+        def raise_for_status(self):
+            pass
+    calls=[]
+    def fake_get(url,params=None,**kwargs):
+        calls.append((url,params))
+        return Capabilities() if len(calls)==1 else ImageResponse()
+    monkeypatch.setattr(data_sources.requests,"get",fake_get)
+    result=data_sources.fetch_map_wms_preview("Malaria__202508_Global_Pf_Incidence_Rate",2024)
+    assert result==png
+    assert calls[1][1]["time"]=="2024-01-01T00:00:00Z"
+    assert calls[1][1]["layers"]=="Malaria:202508_Global_Pf_Incidence_Rate"
+
+def test_map_wms_preview_rejects_html_error(monkeypatch):
+    class Capabilities:
+        content=b'<WMS_Capabilities><Capability><Layer><Name>Malaria:202508_Global_Pf_Incidence_Rate</Name></Layer></Capability></WMS_Capabilities>'
+        headers={"Content-Type":"text/xml"}
+        def raise_for_status(self):
+            pass
+    class ErrorResponse:
+        content=b"<html>WMS error</html>"
+        headers={"Content-Type":"text/html"}
+        text="<html>WMS error</html>"
+        def raise_for_status(self):
+            pass
+    calls=[]
+    def fake_get(*args,**kwargs):
+        calls.append(1)
+        return Capabilities() if len(calls)==1 else ErrorResponse()
+    monkeypatch.setattr(data_sources.requests,"get",fake_get)
+    with pytest.raises(data_sources.DataSourceError,match="did not return a PNG"):
+        data_sources.fetch_map_wms_preview("Malaria__202508_Global_Pf_Incidence_Rate",2024)

@@ -341,3 +341,80 @@ def fetch_map_series(metric: str, version: str, geography_level: str = "admin0",
         row["map_release"] = version
         row["map_provisional"] = None
     return rows
+
+
+# MAP high-resolution WMS raster layers. The layer reference is read from the
+# selected release metadata; no layer names or release IDs are guessed.
+MAP_WMS_BASE = "https://data.malariaatlas.org/geoserver"
+
+
+def resolve_map_wms_layer(layer_ref: str) -> dict[str, str]:
+    """Resolve a release-provided MAP raster reference against WMS capabilities."""
+    import re
+    import xml.etree.ElementTree as ET
+
+    if not isinstance(layer_ref, str) or not layer_ref.strip():
+        raise ValueError("The selected MAP release does not advertise this raster layer.")
+    layer_ref = layer_ref.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_:.\-]+", layer_ref):
+        raise ValueError("MAP raster reference contains unsupported characters.")
+    workspace = layer_ref.split("__", 1)[0] if "__" in layer_ref else layer_ref.split(":", 1)[0]
+    if not re.fullmatch(r"[A-Za-z0-9_\-]+", workspace):
+        raise ValueError("Invalid MAP GeoServer workspace.")
+    endpoint = f"{MAP_WMS_BASE}/{workspace}/ows"
+    response = requests.get(
+        endpoint,
+        params={"service": "WMS", "request": "GetCapabilities", "version": "1.1.1"},
+        headers={"User-Agent": USER_AGENT, "Accept": "application/xml,text/xml"},
+        timeout=REQUEST_TIMEOUT,
+    )
+    response.raise_for_status()
+    try:
+        root = ET.fromstring(response.content)
+    except ET.ParseError as exc:
+        raise DataSourceError("MAP WMS capabilities returned invalid XML.") from exc
+    names = []
+    for element in root.iter():
+        if element.tag.rsplit("}", 1)[-1] == "Name" and element.text:
+            names.append(element.text.strip())
+    candidates = {layer_ref}
+    if "__" in layer_ref:
+        prefix, suffix = layer_ref.split("__", 1)
+        candidates.add(f"{prefix}:{suffix}")
+    if ":" in layer_ref:
+        prefix, suffix = layer_ref.split(":", 1)
+        candidates.add(f"{prefix}__{suffix}")
+    matched = next((name for name in names if name in candidates), None)
+    if not matched:
+        raise DataSourceError(
+            f"MAP WMS did not advertise the release layer '{layer_ref}'. "
+            "The release may not expose this layer through WMS."
+        )
+    return {"workspace": workspace, "endpoint": endpoint, "layer": matched}
+
+
+def fetch_map_wms_preview(layer_ref: str, year: int, width: int = 1600, height: int = 900) -> bytes:
+    """Fetch a bounded Africa-wide WMS preview of a selected MAP 5 km raster."""
+    if not isinstance(year, int) or year < 2000 or year > 2100:
+        raise ValueError("Select a valid raster year.")
+    if not (400 <= width <= 2000 and 300 <= height <= 1400):
+        raise ValueError("Raster preview dimensions are outside the allowed limits.")
+    resolved = resolve_map_wms_layer(layer_ref)
+    params = {
+        "service": "WMS", "version": "1.1.1", "request": "GetMap",
+        "layers": resolved["layer"], "styles": "", "srs": "EPSG:4326",
+        "bbox": "-18,-36,52,38", "width": str(width), "height": str(height),
+        "format": "image/png", "transparent": "true",
+        "time": f"{year}-01-01T00:00:00Z",
+    }
+    response = requests.get(
+        resolved["endpoint"], params=params,
+        headers={"User-Agent": USER_AGENT, "Accept": "image/png"},
+        timeout=REQUEST_TIMEOUT,
+    )
+    response.raise_for_status()
+    content_type = response.headers.get("Content-Type", "").lower()
+    if "image/png" not in content_type or not response.content.startswith(b"\x89PNG\r\n\x1a\n"):
+        message = response.text[:240] if "text" in content_type or "xml" in content_type else "non-PNG response"
+        raise DataSourceError(f"MAP WMS did not return a PNG raster image: {message}")
+    return response.content

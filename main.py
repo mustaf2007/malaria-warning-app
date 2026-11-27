@@ -4,10 +4,11 @@ from io import BytesIO
 from datetime import datetime, timezone
 import pandas as pd
 import plotly.express as px
+import json
 import streamlit as st
 from malaria_intel.analytics import answer_data_question, filter_observations, forecast_linear, latest_country_values, validate_observations, year_over_year
 from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS
-from malaria_intel.data_sources import DataSourceError, fetch_african_countries, fetch_indicator_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, fetch_owid_bundle, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series
+from malaria_intel.data_sources import DataSourceError, fetch_african_countries, fetch_indicator_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, fetch_owid_bundle, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series, fetch_map_wms_preview, resolve_map_wms_layer
 
 st.set_page_config(page_title=APP_NAME, page_icon="🦟", layout="wide", initial_sidebar_state="expanded")
 THEMES = {
@@ -34,6 +35,12 @@ def map_admin_units(iso3, admin_version):
 @st.cache_data(ttl=86400, show_spinner=False)
 def map_series(metric, version, level, iso3, admin_id, stat):
     return fetch_map_series(metric, version, level, iso3=iso3, admin_unit_id=admin_id, stat=stat)
+@st.cache_data(ttl=86400, show_spinner=False)
+def map_raster_preview(layer_ref, year):
+    return fetch_map_wms_preview(layer_ref, int(year))
+@st.cache_data(ttl=86400, show_spinner=False)
+def map_wms_layer(layer_ref):
+    return resolve_map_wms_layer(layer_ref)
 def label(code):
     x = next((i for i in INDICATORS if i.code == code), None)
     return f"{x.name} · {x.unit}" if x else EXTERNAL_INDICATOR_LABELS.get(code, code)
@@ -57,7 +64,7 @@ with st.sidebar:
     theme_name = st.selectbox("Appearance", list(THEMES))
     bg,panel,accent,fg,muted = THEMES[theme_name]
     if st.button("↻ Refresh public data", use_container_width=True):
-        load_data.clear(); who_catalogue.clear(); map_releases.clear(); map_admin_units.clear(); map_series.clear(); st.rerun()
+        load_data.clear(); who_catalogue.clear(); map_releases.clear(); map_admin_units.clear(); map_series.clear(); map_raster_preview.clear(); map_wms_layer.clear(); st.rerun()
     st.caption("Public sources cached for 24 hours.")
 st.markdown(f"""<style>
 .stApp{{background:{bg};color:{fg}}}[data-testid="stSidebar"]{{background:{panel}}}
@@ -106,7 +113,7 @@ else:
 if load_error: st.warning(f"Public sources unavailable: {load_error}. Upload a compatible CSV to continue.")
 nav = st.sidebar.radio("WORKSPACES", [
  "Executive Overview","Country Intelligence","Surveillance & Trends","Spatial Intelligence",
- "Prevention & Health Systems","MAP Subnational Intelligence","Forecasting & Risk Analysis","AI Malaria Analyst",
+ "Prevention & Health Systems","MAP Subnational Intelligence","MAP 5 km Raster Explorer","Forecasting & Risk Analysis","AI Malaria Analyst",
  "Reports & Downloads","Data Quality & Sources"])
 view = filter_observations(raw,countries=selected_iso or None,start_year=year_range[0],end_year=year_range[1]) if not raw.empty else raw
 codes = sorted(raw["indicator_code"].dropna().unique()) if not raw.empty else []
@@ -277,6 +284,116 @@ elif nav == "MAP Subnational Intelligence":
         except Exception as exc:
             st.error(f"MAP services could not be loaded: {exc}")
     st.markdown("**Source and attribution:** Malaria Atlas Project, selected dataset and release. Reuse MAP maps under CC BY 3.0 with the dataset-specific citation and attribution. Third-party source data retains its own licence and citation.")
+
+
+elif nav == "MAP 5 km Raster Explorer":
+    st.subheader("MAP · high-resolution malaria spatial intelligence")
+    st.caption("Interactive WMS map of MAP's published modelled raster layers. Grid estimates are approximately 5 km; they are not live case notifications.")
+    st.info("Use this explorer to inspect the spatial distribution of modelled malaria burden and intervention coverage. A mapped estimate does not establish an active outbreak or the risk to an individual.")
+    try:
+        releases = map_releases()
+        if not releases:
+            st.warning("MAP release metadata is unavailable. Try refreshing public data.")
+        else:
+            raster_release = st.selectbox(
+                "Raster data release",
+                releases,
+                format_func=lambda r: f"{r['version']} · through {r['data_end_year']}{' · provisional' if r['provisional'] else ''}",
+                key="map_raster_release",
+            )
+            raster_refs = raster_release.get("geo_server_refs", {})
+            raster_catalogue = {
+                "pfIncidenceRate": "P. falciparum clinical incidence rate",
+                "pfpr": "P. falciparum parasite prevalence (PfPR2-10)",
+                "pfMortalityRate": "P. falciparum mortality rate",
+                "pvIncidenceRate": "P. vivax clinical incidence rate",
+                "pvpr": "P. vivax parasite prevalence",
+                "itnUse": "Population sleeping under insecticide-treated nets",
+                "itnAccess": "Population with household access to insecticide-treated nets",
+                "itnUseRate": "ITN use among people with household access",
+                "irsCoverage": "Indoor residual spraying coverage",
+            }
+            available_rasters = {
+                key: (raster_catalogue[key], str(raster_refs.get(key, "")).strip())
+                for key in raster_catalogue
+                if raster_refs.get(key)
+            }
+            if not available_rasters:
+                st.warning("The selected MAP release does not advertise supported raster layers.")
+            else:
+                selected_raster_key = st.selectbox(
+                    "Raster layer",
+                    list(available_rasters),
+                    format_func=lambda key: available_rasters[key][0],
+                    key="map_raster_metric",
+                )
+                raster_label, raster_layer_ref = available_rasters[selected_raster_key]
+                max_raster_year = int(raster_release.get("data_end_year") or 2025)
+                if max_raster_year < 2000:
+                    st.warning("The selected release does not advertise a usable raster year range.")
+                else:
+                    raster_year = st.slider(
+                        "Reference year", min_value=2000, max_value=max_raster_year,
+                        value=max_raster_year, key="map_raster_year",
+                    )
+                    if raster_release.get("provisional"):
+                        st.warning("This MAP release is provisional. Confirm the release status before citing its estimates.")
+                    if st.button("Render 5 km spatial layer", type="primary"):
+                        try:
+                            with st.spinner("Resolving the published MAP raster layer and loading map tiles…"):
+                                layer_info = map_wms_layer(raster_layer_ref)
+                                preview = map_raster_preview(raster_layer_ref, raster_year)
+                                st.session_state.map_raster_context = {
+                                    "release": raster_release["version"],
+                                    "year": raster_year,
+                                    "metric": raster_label,
+                                    "layer_ref": raster_layer_ref,
+                                    "wms_endpoint": layer_info["endpoint"],
+                                    "wms_layer": layer_info["layer"],
+                                    "provisional": raster_release.get("provisional", False),
+                                }
+                                st.session_state.map_raster_png = preview
+                        except Exception as exc:
+                            st.error(f"MAP spatial layer could not be rendered: {exc}")
+                    raster_png = st.session_state.get("map_raster_png")
+                    raster_context = st.session_state.get("map_raster_context")
+                    if raster_png and raster_context:
+                        st.markdown("#### Africa · modelled raster surface")
+                        st.caption(f"{raster_context['metric']} · {raster_context['year']} · MAP release {raster_context['release']}")
+                        layer_json = json.dumps(raster_context["wms_layer"])
+                        endpoint_json = json.dumps(raster_context["wms_endpoint"])
+                        year_json = json.dumps(f"{raster_context['year']}-01-01T00:00:00Z")
+                        html = f"""
+                        <div id="ami-map" style="height:650px;width:100%;border-radius:14px;overflow:hidden;"></div>
+                        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+                        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+                        <script>
+                        (function(){{
+                          const map = L.map('ami-map',{{scrollWheelZoom:true,preferCanvas:true}});
+                          const osm = L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+                            maxZoom: 9, attribution: '&copy; OpenStreetMap contributors'
+                          }}).addTo(map);
+                          const wms = L.tileLayer.wms({endpoint_json}, {{
+                            layers: {layer_json}, format:'image/png', transparent:true,
+                            version:'1.1.1', srs:'EPSG:4326', time:{year_json},
+                            opacity:0.78, attribution:'Malaria Atlas Project (CC BY 3.0)'
+                          }}).addTo(map);
+                          map.fitBounds([[-35,-18],[38,52]]);
+                          L.control.layers({{'OpenStreetMap':osm}},{{'MAP malaria raster':wms}}).addTo(map);
+                          L.control.scale({{imperial:false}}).addTo(map);
+                        }})();
+                        </script>
+                        """
+                        st.components.v1.html(html, height=670, scrolling=False)
+                        st.download_button(
+                            "Download rendered MAP raster preview · PNG",
+                            raster_png, f"map_{raster_context['release']}_{raster_context['year']}.png",
+                            "image/png",
+                        )
+                        st.caption("The interactive map uses MAP's WMS raster service and OpenStreetMap base tiles. Display resolution depends on map zoom and screen size; the source raster is the MAP high-resolution product.")
+                        st.markdown("**Attribution:** Malaria Atlas Project, selected raster layer and release. MAP maps are available under CC BY 3.0; retain dataset-specific citation details and identify adaptations. OpenStreetMap contributors provide the basemap.")
+    except Exception as exc:
+        st.error(f"MAP raster catalogue unavailable: {exc}")
 
 elif nav == "Forecasting & Risk Analysis":
     st.subheader("Exploratory trend modelling")
