@@ -345,29 +345,57 @@ def fetch_map_admin1(country_iso3: str, admin_version: str) -> list[dict[str, st
 
 def _jsonstat_rows(payload: dict[str, Any], geography_level: str, metric: str, stat: str, source_url: str) -> list[dict[str, Any]]:
     """Decode MAP JSON-stat data using category indexes, not assumed positional order."""
-    dimension = payload.get("dimension") or {}
+    if not isinstance(payload, dict):
+        raise DataSourceError("MAP JSON-stat response must be an object.")
+    dimension = payload.get("dimension")
+    if not isinstance(dimension, dict):
+        raise DataSourceError("MAP JSON-stat response is missing dimension metadata.")
     geo_key = "ISO" if geography_level == "admin0" else "ID"
-    geo_dim = dimension.get(geo_key) or {}
-    year_dim = dimension.get("Year") or {}
-    geo_index = (geo_dim.get("category") or {}).get("index") or {}
-    year_index = (year_dim.get("category") or {}).get("index") or {}
-    geo_labels = (geo_dim.get("category") or {}).get("label") or {}
+    geo_dim = dimension.get(geo_key)
+    year_dim = dimension.get("Year")
+    if not isinstance(geo_dim, dict) or not isinstance(year_dim, dict):
+        raise DataSourceError("MAP JSON-stat response is missing geography or year dimensions.")
+    geo_category = geo_dim.get("category") or {}
+    year_category = year_dim.get("category") or {}
+    if not isinstance(geo_category, dict) or not isinstance(year_category, dict):
+        raise DataSourceError("MAP JSON-stat category metadata is malformed.")
+    geo_index = geo_category.get("index")
+    year_index = year_category.get("index")
+    geo_labels = geo_category.get("label") or {}
     if isinstance(geo_index, list):
         geo_index = {code: index for index, code in enumerate(geo_index)}
     if isinstance(year_index, list):
         year_index = {year: index for index, year in enumerate(year_index)}
-    if not isinstance(geo_index, dict) or not isinstance(year_index, dict):
-        raise DataSourceError("MAP JSON-stat category indexes have an unsupported format.")
-    years = sorted(((int(year), int(index)) for year, index in year_index.items()), key=lambda x: x[1])
-    geos = sorted(((str(code), int(index)) for code, index in geo_index.items()), key=lambda x: x[1])
-    values = payload.get("value", [])
+    if not isinstance(geo_index, dict) or not isinstance(year_index, dict) or not geo_index or not year_index:
+        raise DataSourceError("MAP JSON-stat category indexes have an unsupported or empty format.")
+    try:
+        geo_positions = [int(index) for index in geo_index.values()]
+        year_positions = [int(index) for index in year_index.values()]
+        years = [(int(year), int(index)) for year, index in year_index.items()]
+        geos = [(str(code), int(index)) for code, index in geo_index.items()]
+    except (TypeError, ValueError) as exc:
+        raise DataSourceError("MAP JSON-stat category indexes contain invalid positions or years.") from exc
+    if (
+        sorted(geo_positions) != list(range(len(geo_positions)))
+        or sorted(year_positions) != list(range(len(year_positions)))
+        or len(set(year for year, _ in years)) != len(years)
+        or any(not code for code, _ in geos)
+    ):
+        raise DataSourceError("MAP JSON-stat category indexes must be unique and contiguous from zero.")
+    years.sort(key=lambda item: item[1])
+    geos.sort(key=lambda item: item[1])
+    values = payload.get("value")
     if isinstance(values, dict):
         value_at = lambda index: values.get(str(index))
+        received = len(values)
+    elif isinstance(values, list):
+        value_at = lambda index: values[index]
+        received = len(values)
     else:
-        value_at = lambda index: values[index] if index < len(values) else None
+        raise DataSourceError("MAP JSON-stat values must be an array or indexed object.")
     expected = len(geos) * len(years)
-    if len(values) < expected:
-        raise DataSourceError(f"MAP JSON-stat values are incomplete: expected {expected}, received {len(values)}.")
+    if received < expected:
+        raise DataSourceError(f"MAP JSON-stat values are incomplete: expected {expected}, received {received}.")
     output = []
     for geo_code, geo_pos in geos:
         for year, year_pos in years:
