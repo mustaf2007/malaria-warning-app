@@ -72,7 +72,7 @@ with st.sidebar:
     bg,panel,accent,fg,muted = THEMES[theme_name]
     if st.button("↻ Refresh public data", use_container_width=True):
         load_data.clear(); who_catalogue.clear(); map_releases.clear(); map_admin_units.clear(); map_series.clear(); map_raster_preview.clear(); map_wms_layer.clear(); map_country_boundary.clear(); map_admin1_boundary.clear(); st.rerun()
-    st.caption("Public sources cached for 24 hours.")
+    st.caption("Cache policy: core country observations 15 minutes; WHO catalogue and MAP reference/spatial data up to 24 hours.")
 st.markdown(f"""<style>
 .stApp{{background:{bg};color:{fg}}}[data-testid="stSidebar"]{{background:{panel}}}
 [data-testid="stMetric"]{{background:{panel};border:1px solid rgba(130,170,160,.22);padding:15px;border-radius:14px}}
@@ -843,7 +843,7 @@ elif nav == "Data Quality & Sources":
             except Exception as exc: st.error(f"WHO indicator retrieval failed: {exc}")
     st.markdown("#### Interpretation safeguards")
     st.markdown("- Modelled estimates, reported counts and contextual health indicators are not interchangeable.\n- Latest years may differ across countries.\n- Missing values are not zero.\n- Country-level statistics do not establish subnational outbreak conditions.\n- This is a research and programme-intelligence tool, not a diagnostic or treatment system.")
-    st.caption(f"Rendered {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}. Cached public observations may be up to 24 hours old.")
+    st.caption(f"Rendered {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}. Cache duration varies by connector; observation reference years do not indicate provider update timestamps.")
 
 st.divider()
 st.caption("Africa Malaria Intelligence · Open-data research platform · Not a real-time case surveillance system · Verify source definitions before policy use.")
