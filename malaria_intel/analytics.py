@@ -192,6 +192,69 @@ def build_data_quality_tables(
     }
 
 
+
+def summarize_loaded_dataset(
+    frame: pd.DataFrame,
+    country_names: dict[str, str] | None = None,
+) -> str:
+    """Summarise the complete loaded dataset without pooling unlike indicators."""
+    required = {"iso3", "country", "year", "indicator_code", "value", "source"}
+    missing_columns = required - set(frame.columns)
+    if missing_columns:
+        raise ValueError(f"Missing required columns: {', '.join(sorted(missing_columns))}")
+    if frame.empty:
+        return "No observations are currently loaded. Refresh the data or upload a validated dataset first."
+
+    data = frame.copy()
+    data["year"] = pd.to_numeric(data["year"], errors="coerce")
+    data["value"] = pd.to_numeric(data["value"], errors="coerce")
+    data = data.dropna(subset=["iso3", "year", "indicator_code"])
+    if data.empty:
+        return "The loaded dataset contains no usable country, year and indicator records."
+
+    observed = data[data["value"].notna()]
+    total_rows = len(data)
+    missing_values = int(data["value"].isna().sum())
+    country_count = int(data["iso3"].nunique())
+    indicator_count = int(data["indicator_code"].nunique())
+    source_count = int(data["source"].nunique())
+    year_min = int(data["year"].min())
+    year_max = int(data["year"].max())
+    lines = [
+        "**Dataset-wide summary**",
+        f"- Records: {total_rows:,} ({len(observed):,} with numeric values; {missing_values:,} missing values, {missing_values / total_rows * 100:.1f}%).",
+        f"- Coverage: {country_count:,} countries, {indicator_count:,} indicators and {source_count:,} sources.",
+        f"- Reference years represented: {year_min}–{year_max}.",
+    ]
+    if observed.empty:
+        lines.append("- No numeric observations are available, so indicator statistics cannot be calculated.")
+        return "\n".join(lines)
+
+    lines.append("")
+    lines.append("**Indicator-by-indicator results**")
+    for code, part in observed.groupby("indicator_code", sort=True):
+        values = part["value"]
+        countries = int(part["iso3"].nunique())
+        first_year = int(part["year"].min())
+        last_year = int(part["year"].max())
+        lines.append(
+            f"- **{code}**: {len(part):,} numeric observations across {countries:,} countries "
+            f"({first_year}–{last_year}); minimum {values.min():,.4g}, "
+            f"median {values.median():,.4g}, maximum {values.max():,.4g}."
+        )
+    lines.append("")
+    lines.append("**Data interpretation**")
+    lines.append(
+        "- Statistics are calculated separately for each indicator. Values from different indicators "
+        "are not pooled because their units and definitions may differ."
+    )
+    lines.append(
+        "- These are descriptive summaries of the loaded rows, not population-weighted continental "
+        "rates. Multiple source records may represent the same country-year."
+    )
+    lines.append("- Missing values are not treated as zero; source definitions and reference years should be checked before policy use.")
+    return "\n".join(lines)
+
 def answer_data_question(frame: pd.DataFrame, question: str, country_names: dict[str, str] | None = None) -> str:
     """Model-free assistant: answers supported questions by calculating from loaded observations."""
     q = (question or "").strip().lower()
@@ -199,6 +262,9 @@ def answer_data_question(frame: pd.DataFrame, question: str, country_names: dict
         return "Enter a question about the currently loaded malaria dataset."
     if frame.empty:
         return "No observations are currently loaded. Refresh the data or upload a validated dataset first."
+    broad_summary_terms = ("summarize", "summarise", "summary", "overview", "all data", "whole dataset", "entire dataset")
+    if any(term in q for term in broad_summary_terms):
+        return summarize_loaded_dataset(frame, country_names)
     indicators = sorted(frame["indicator_code"].dropna().unique())
     matched = next((code for code in indicators if code.lower() in q), None)
     if matched is None:
