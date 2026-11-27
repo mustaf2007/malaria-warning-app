@@ -86,3 +86,18 @@ def test_african_country_catalogue_includes_sub_saharan_and_north_africa(monkeyp
     codes = {country["iso3"] for country in countries}
     assert {"SOM", "NGA", "DZA", "EGY"}.issubset(codes)
     assert "FRA" not in codes
+
+
+
+def test_year_range_bounds_always_exposes_full_default_period():
+    from datetime import datetime, timezone
+    from malaria_intel.config import DEFAULT_END_YEAR, year_range_bounds
+
+    assert year_range_bounds([]) == (1960, datetime.now(timezone.utc).year)
+    assert year_range_bounds([2000, 2024]) == (1960, DEFAULT_END_YEAR)
+
+
+def test_year_range_bounds_preserves_observations_outside_default_period():
+    from malaria_intel.config import DEFAULT_END_YEAR, year_range_bounds
+
+    assert year_range_bounds([1950, DEFAULT_END_YEAR + 2]) == (1950, DEFAULT_END_YEAR + 2)
