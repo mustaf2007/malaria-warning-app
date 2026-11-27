@@ -18,12 +18,9 @@ class Indicator:
     kind: str = "reported_or_modelled"
 
 INDICATORS = [
-    Indicator("SH.MLR.INCD.P3", "Malaria incidence", "Estimated malaria cases per 1,000 population at risk.", "per 1,000 at risk", "Burden", kind="modelled"),
-    Indicator("SH.MLR.CASES", "Malaria cases", "Estimated number of malaria cases.", "cases", "Burden", kind="modelled"),
-    Indicator("SH.MLR.DEATHS", "Malaria deaths", "Estimated number of malaria deaths.", "deaths", "Burden", kind="modelled"),
-    Indicator("SH.MLR.MORT", "Malaria mortality rate", "Malaria mortality rate per 100,000 population at risk.", "per 100,000 at risk", "Burden", kind="modelled"),
-    Indicator("SH.MLR.PREV.ZS", "Malaria prevalence", "Estimated malaria parasite prevalence indicator, where available.", "%", "Burden", kind="modelled"),
-    Indicator("SH.MLR.NETS.ZS", "Insecticide-treated net use", "Use of insecticide-treated nets among the relevant population, where available.", "%", "Prevention"),
+    Indicator("SH.MLR.INCD.P3", "Malaria incidence", "Estimated new malaria cases per 1,000 population at risk.", "per 1,000 at risk", "Burden", kind="modelled"),
+    Indicator("SH.STA.MALR", "Reported confirmed malaria cases", "Confirmed malaria cases reported by national malaria control programmes.", "reported cases", "Burden", kind="reported"),
+    Indicator("SH.MLR.TRET.ZS", "Children with fever receiving antimalarial drugs", "Share of children under five with recent fever who received an appropriate antimalarial drug.", "%", "Treatment", kind="survey"),
     Indicator("SP.POP.TOTL", "Total population", "Total population, used for contextual analysis.", "people", "Population"),
     Indicator("SP.POP.0014.TO.ZS", "Population ages 0–14", "Children as a share of the population.", "%", "Population"),
     Indicator("SH.DYN.MORT", "Under-five mortality", "Under-five mortality rate, a contextual child-health indicator.", "per 1,000 live births", "Vulnerability"),
