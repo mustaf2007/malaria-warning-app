@@ -164,3 +164,33 @@ def test_static_map_raster_does_not_accept_year():
     assert data_sources.map_wms_time_for_year(info,None) is None
     with pytest.raises(ValueError,match="static"):
         data_sources.map_wms_time_for_year(info,2020)
+
+
+def test_map_jsonstat_rejects_non_contiguous_category_positions():
+    payload = _jsonstat()
+    payload["dimension"]["ID"]["category"]["index"] = {"103": 0, "104": 2}
+    with pytest.raises(data_sources.DataSourceError, match="unique and contiguous"):
+        data_sources._jsonstat_rows(payload, "admin1", "Pf_incidence-count", "mean", "https://example.test")
+
+
+def test_map_jsonstat_rejects_duplicate_category_positions():
+    payload = _jsonstat()
+    payload["dimension"]["Year"]["category"]["index"] = {"2020": 0, "2021": 0}
+    with pytest.raises(data_sources.DataSourceError, match="unique and contiguous"):
+        data_sources._jsonstat_rows(payload, "admin1", "Pf_incidence-count", "mean", "https://example.test")
+
+
+def test_map_jsonstat_rejects_missing_dimension_or_invalid_values():
+    with pytest.raises(data_sources.DataSourceError, match="dimension metadata"):
+        data_sources._jsonstat_rows({}, "admin1", "Pf_incidence-count", "mean", "https://example.test")
+    payload = _jsonstat()
+    payload["value"] = "not-an-array"
+    with pytest.raises(data_sources.DataSourceError, match="array or indexed object"):
+        data_sources._jsonstat_rows(payload, "admin1", "Pf_incidence-count", "mean", "https://example.test")
+
+
+def test_map_jsonstat_rejects_invalid_year_category():
+    payload = _jsonstat()
+    payload["dimension"]["Year"]["category"]["index"] = {"unknown": 0}
+    with pytest.raises(data_sources.DataSourceError, match="invalid positions or years"):
+        data_sources._jsonstat_rows(payload, "admin1", "Pf_incidence-count", "mean", "https://example.test")
