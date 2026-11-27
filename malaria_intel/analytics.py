@@ -120,7 +120,12 @@ def build_data_quality_tables(
                 "latest_observation_year": int(observed_years.max()) if not observed_years.empty else pd.NA,
                 "years_behind_current": reference_year - int(observed_years.max()) if not observed_years.empty else pd.NA,
             })
-        return pd.DataFrame(rows)
+        columns = [
+            key, "rows_received", "non_missing_values", "missing_values",
+            "missing_pct", "zero_values", "countries", "first_observation_year",
+            "latest_observation_year", "years_behind_current",
+        ]
+        return pd.DataFrame(rows, columns=columns)
 
     indicator_summary = summarise(data, "indicator_code")
     source_summary = summarise(data, "source")
