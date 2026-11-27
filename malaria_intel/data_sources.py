@@ -406,14 +406,19 @@ def resolve_map_wms_layer(layer_ref: str) -> dict[str, Any]:
             "The release may not expose this layer through WMS."
         )
 
-    years = [int(value) for value in re.findall(r"(?<!\d)(?:19|20|21)\d{2}(?!\d)", time_values or "")]
+    years = sorted({int(value) for value in re.findall(r"(?<!\\d)(?:19|20|21)\\d{2}(?!\\d)", time_values or "")})
+    if time_values and "/" in time_values and len(years) >= 2:
+        available_years = list(range(years[0], years[-1] + 1))
+    else:
+        available_years = years
     return {
         "workspace": workspace,
         "endpoint": endpoint,
         "layer": matched,
         "time_values": time_values,
-        "min_year": min(years) if years else None,
-        "max_year": max(years) if years else None,
+        "available_years": available_years,
+        "min_year": min(available_years) if available_years else None,
+        "max_year": max(available_years) if available_years else None,
     }
 
 
@@ -428,11 +433,8 @@ def map_wms_time_for_year(layer_info: dict[str, Any], year: int | None) -> str |
         return None
     if not isinstance(year, int):
         raise ValueError("Select a year for this time-varying MAP raster.")
-    if year < int(layer_info["min_year"]) or year > int(layer_info["max_year"]):
-        raise ValueError(
-            f"Year {year} is outside this raster's published range "
-            f"({layer_info['min_year']}–{layer_info['max_year']})."
-        )
+    if year not in layer_info.get("available_years", []):
+        raise ValueError(f"Year {year} is not available for this MAP raster layer.")
     # GeoServer may advertise a compact interval or a comma-separated list
     # of exact timestamps. Preserve the exact advertised timestamp when listed.
     if "/" not in values:
