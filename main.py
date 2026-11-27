@@ -8,7 +8,7 @@ import json
 import streamlit as st
 from malaria_intel.analytics import answer_data_question, filter_observations, forecast_linear, latest_country_values, validate_observations, year_over_year
 from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS
-from malaria_intel.data_sources import DataSourceError, fetch_african_countries, fetch_indicator_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, fetch_owid_bundle, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series, fetch_map_wms_preview, resolve_map_wms_layer, map_wms_time_for_year
+from malaria_intel.data_sources import DataSourceError, fetch_dashboard_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series, fetch_map_wms_preview, resolve_map_wms_layer, map_wms_time_for_year
 from malaria_intel.spatial import fetch_country_boundary, fetch_admin1_boundaries, join_admin1_estimates_to_geojson
 from malaria_intel.reports import build_country_report_pdf, build_africa_report_pdf
 from malaria_intel.benchmarking import country_benchmark, benchmark_coverage
@@ -20,12 +20,10 @@ THEMES = {
  "Light": ("#F4F7F8","#FFFFFF","#087F69","#172B2A","#617472"),
  "Dark": ("#101418","#1B242B","#5ED6C0","#F1F5F4","#AAB8B5"),
 }
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=900, show_spinner=False)
 def load_data(start, end):
-    countries = fetch_african_countries()
-    rows, status = fetch_indicator_bundle(start, end)
-    owid_rows, owid_status = fetch_owid_bundle(start, end)
-    return countries, rows + owid_rows, status + owid_status
+    # Each provider is isolated: a temporary outage must not discard data from other sources.
+    return fetch_dashboard_bundle(start, end)
 @st.cache_data(ttl=86400, show_spinner=False)
 def who_catalogue():
     return discover_who_malaria_indicators()
@@ -92,6 +90,9 @@ with st.spinner("Connecting to public open-data sources…"):
         countries, rows, statuses, load_error = [], [], [], str(exc)
 country_names = {c["iso3"]:c["name"] for c in countries}
 raw = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["iso3","country","year","indicator_code","value","source","source_url"])
+# If country metadata is temporarily unavailable, preserve names already carried by observations.
+if not country_names and not raw.empty:
+    country_names = (raw.dropna(subset=["iso3"]).drop_duplicates("iso3").set_index("iso3")["country"].astype(str).to_dict())
 if countries and not raw.empty:
     raw = raw[raw["iso3"].isin(country_names)].copy()
 if st.session_state.get("who_rows"):
@@ -119,7 +120,12 @@ if not raw.empty:
     raw, quality = validate_observations(raw)
 else:
     quality = {"rows":0,"missing_values":0,"duplicate_keys_removed":0,"countries":0,"indicators":0,"years":0}
-if load_error: st.warning(f"Public sources unavailable: {load_error}. Upload a compatible CSV to continue.")
+if load_error:
+    st.warning(f"Some public data could not be loaded: {load_error}. The dashboard will continue with any available sources.")
+elif not countries:
+    st.warning("Country metadata is temporarily unavailable. Country filters are using country codes/names present in the loaded observations.")
+if not raw.empty and not any(status.get("status") == "loaded" for status in statuses):
+    st.warning("No source currently reports a successful load. Try Refresh public data in the sidebar.")
 nav = st.sidebar.radio("WORKSPACES", [
  "Executive Overview","Country Intelligence","Country Benchmarking","Surveillance & Trends","Spatial Intelligence",
  "Prevention & Health Systems","MAP Subnational Intelligence","MAP 5 km Raster Explorer","Forecasting & Risk Analysis","AI Malaria Analyst",
