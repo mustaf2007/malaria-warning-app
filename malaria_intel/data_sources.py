@@ -135,7 +135,9 @@ def fetch_who_gho_indicator(code: str) -> list[dict[str, Any]]:
     """Fetch a selected WHO GHO indicator code; source fields are preserved."""
     if not code or not code.replace("_", "").isalnum():
         raise ValueError("Invalid WHO GHO indicator code.")
-    values = _get_odata_rows(f"{WHO_GHO_BASE}/{code}", {"$format": "json", "$top": 10000})
+    # Use OData default JSON and bounded pages, matching the discovery endpoint.
+    # _get_odata_rows follows the server-provided @odata.nextLink.
+    values = _get_odata_rows(f"{WHO_GHO_BASE}/{code}", {"$top": 1000})
     output = []
     for item in values:
         year = item.get("TimeDim")
