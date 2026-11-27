@@ -212,7 +212,7 @@ def test_map_wms_preview_rejects_truncated_png_header(monkeypatch):
         def raise_for_status(self):
             pass
     class ImageResponse:
-        content=b"\\x89PNG\\r\\n\\x1a\\n"
+        content=bytes([137,80,78,71,13,10,26,10])
         headers={"Content-Type":"image/png"}
         def raise_for_status(self):
             pass
