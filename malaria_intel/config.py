@@ -1,9 +1,11 @@
 """Configuration and indicator catalogue for Africa Malaria Intelligence."""
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 APP_NAME = "Africa Malaria Intelligence"
-DEFAULT_START_YEAR = 2000
-DEFAULT_END_YEAR = 2024
+DEFAULT_START_YEAR = 1960
+# Follow the current calendar year; each source returns only years it actually publishes.
+DEFAULT_END_YEAR = datetime.now(timezone.utc).year
 REQUEST_TIMEOUT = 25
 USER_AGENT = "AfricaMalariaIntelligence/1.0 (open-data research dashboard)"
 
