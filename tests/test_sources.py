@@ -19,3 +19,30 @@ def test_owid_grapher_normalizes_country_rows(monkeypatch):
 def test_owid_grapher_rejects_unapproved_slug():
     with pytest.raises(ValueError, match="not in the approved catalogue"):
         data_sources.fetch_owid_grapher("unknown-malaria-series")
+
+
+def test_dashboard_bundle_keeps_indicator_data_when_country_metadata_fails(monkeypatch):
+    expected_rows = [{"iso3": "SOM", "country": "Somalia", "year": 2022, "indicator_code": "TEST", "value": 1.0, "source": "test"}]
+    monkeypatch.setattr(data_sources, "fetch_african_countries", lambda: (_ for _ in ()).throw(RuntimeError("metadata timeout")))
+    monkeypatch.setattr(data_sources, "fetch_indicator_bundle", lambda start, end: (expected_rows, [{"code": "TEST", "status": "loaded", "records": "1", "non_missing": "1", "source": "World Bank"}]))
+    monkeypatch.setattr(data_sources, "fetch_owid_bundle", lambda start, end: ([], []))
+
+    countries, rows, statuses = data_sources.fetch_dashboard_bundle(2000, 2024)
+
+    assert countries == []
+    assert rows == expected_rows
+    assert any(item["code"] == "COUNTRY_METADATA" and item["status"] == "unavailable" for item in statuses)
+    assert any(item["code"] == "TEST" and item["status"] == "loaded" for item in statuses)
+
+
+def test_dashboard_bundle_keeps_world_bank_rows_when_owid_fails(monkeypatch):
+    expected_rows = [{"iso3": "SOM", "country": "Somalia", "year": 2022, "indicator_code": "TEST", "value": 1.0, "source": "test"}]
+    monkeypatch.setattr(data_sources, "fetch_african_countries", lambda: [{"iso3": "SOM", "name": "Somalia"}])
+    monkeypatch.setattr(data_sources, "fetch_indicator_bundle", lambda start, end: (expected_rows, []))
+    monkeypatch.setattr(data_sources, "fetch_owid_bundle", lambda start, end: (_ for _ in ()).throw(RuntimeError("OWID unavailable")))
+
+    countries, rows, statuses = data_sources.fetch_dashboard_bundle(2000, 2024)
+
+    assert countries[0]["iso3"] == "SOM"
+    assert rows == expected_rows
+    assert any(item["code"] == "OWID_BUNDLE" and item["status"] == "unavailable" for item in statuses)
