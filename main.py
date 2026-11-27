@@ -37,7 +37,7 @@ def map_series(metric, version, level, iso3, admin_id, stat):
     return fetch_map_series(metric, version, level, iso3=iso3, admin_unit_id=admin_id, stat=stat)
 @st.cache_data(ttl=86400, show_spinner=False)
 def map_raster_preview(layer_ref, year):
-    return fetch_map_wms_preview(layer_ref, int(year))
+    return fetch_map_wms_preview(layer_ref, int(year) if year is not None else None)
 @st.cache_data(ttl=86400, show_spinner=False)
 def map_wms_layer(layer_ref):
     return resolve_map_wms_layer(layer_ref)
@@ -363,7 +363,8 @@ elif nav == "MAP 5 km Raster Explorer":
                             st.error(f"MAP spatial layer could not be rendered: {exc}")
                     raster_png = st.session_state.get("map_raster_png")
                     raster_context = st.session_state.get("map_raster_context")
-                    if raster_png and raster_context:
+                    context_matches = bool(raster_context) and raster_context.get("release") == raster_release["version"] and raster_context.get("layer_ref") == raster_layer_ref and raster_context.get("year") == year_value
+                    if raster_png and raster_context and context_matches:
                         st.markdown("#### Africa · modelled raster surface")
                         selected_year_label = str(raster_context["year"]) if raster_context["year"] is not None else "Static layer"
                         st.caption(f"{raster_context['metric']} · {selected_year_label} · MAP release {raster_context['release']}")
