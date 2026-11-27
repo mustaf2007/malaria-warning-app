@@ -6,8 +6,8 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 from malaria_intel.analytics import answer_data_question, filter_observations, forecast_linear, latest_country_values, validate_observations, year_over_year
-from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS
-from malaria_intel.data_sources import DataSourceError, fetch_african_countries, fetch_indicator_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator
+from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS
+from malaria_intel.data_sources import DataSourceError, fetch_african_countries, fetch_indicator_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, fetch_owid_bundle
 
 st.set_page_config(page_title=APP_NAME, page_icon="🦟", layout="wide", initial_sidebar_state="expanded")
 THEMES = {
@@ -20,13 +20,14 @@ THEMES = {
 def load_data(start, end):
     countries = fetch_african_countries()
     rows, status = fetch_indicator_bundle(start, end)
-    return countries, rows, status
+    owid_rows, owid_status = fetch_owid_bundle(start, end)
+    return countries, rows + owid_rows, status + owid_status
 @st.cache_data(ttl=86400, show_spinner=False)
 def who_catalogue():
     return discover_who_malaria_indicators()
 def label(code):
     x = next((i for i in INDICATORS if i.code == code), None)
-    return f"{x.name} · {x.unit}" if x else code
+    return f"{x.name} · {x.unit}" if x else EXTERNAL_INDICATOR_LABELS.get(code, code)
 def line_chart(df, title, unit):
     if df.empty:
         st.info("No non-missing observations are available for this selection. Try another indicator, country or period.")
@@ -100,7 +101,7 @@ nav = st.sidebar.radio("WORKSPACES", [
  "Reports & Downloads","Data Quality & Sources"])
 view = filter_observations(raw,countries=selected_iso or None,start_year=year_range[0],end_year=year_range[1]) if not raw.empty else raw
 codes = sorted(raw["indicator_code"].dropna().unique()) if not raw.empty else []
-malaria_codes = [c for c in codes if c.startswith("SH.MLR") or c == "SH.STA.MALR"]
+malaria_codes = [c for c in codes if c.startswith("SH.MLR") or c == "SH.STA.MALR" or c.startswith("OWID:")]
 default_code = next((c for c in ["SH.MLR.INCD.P3","SH.MLR.CASES","SH.MLR.DEATHS","SH.MLR.MORT"] if c in codes), codes[0] if codes else None)
 
 if nav == "Executive Overview":
