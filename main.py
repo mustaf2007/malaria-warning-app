@@ -68,7 +68,7 @@ with st.sidebar:
     theme_name = st.selectbox("Appearance", list(THEMES))
     bg,panel,accent,fg,muted = THEMES[theme_name]
     if st.button("↻ Refresh public data", use_container_width=True):
-        load_data.clear(); who_catalogue.clear(); map_releases.clear(); map_admin_units.clear(); map_series.clear(); map_raster_preview.clear(); map_wms_layer.clear(); st.rerun()
+        load_data.clear(); who_catalogue.clear(); map_releases.clear(); map_admin_units.clear(); map_series.clear(); map_raster_preview.clear(); map_wms_layer.clear(); map_country_boundary.clear(); st.rerun()
     st.caption("Public sources cached for 24 hours.")
 st.markdown(f"""<style>
 .stApp{{background:{bg};color:{fg}}}[data-testid="stSidebar"]{{background:{panel}}}
@@ -384,7 +384,7 @@ elif nav == "MAP 5 km Raster Explorer":
                         selected_year_label = str(raster_context["year"]) if raster_context["year"] is not None else "Static layer"
                         st.caption(f"{raster_context['focus_country']} · {raster_context['metric']} · {selected_year_label} · MAP release {raster_context['release']}")
                         layer_json = json.dumps(raster_context["wms_layer"])
-                        boundary_json = json.dumps(raster_context["boundary_geojson"], separators=(",", ":"))
+                        boundary_json = json.dumps(raster_context["boundary_geojson"], separators=(",", ":")).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
                         endpoint_json = json.dumps(raster_context["wms_endpoint"])
                         time_json = json.dumps(raster_context["wms_time"])
                         time_option = f", time:{time_json}" if raster_context["wms_time"] else ""
