@@ -13,7 +13,7 @@ A Streamlit-based, open-data research and programme-intelligence workspace for m
 - Prevention, population vulnerability and health-system context indicators where data is available.
 - Exploratory linear trend extrapolation with an explicit non-operational warning.
 - Model-free analyst that computes answers from loaded observations rather than inventing unsupported facts.
-- Country-specific PDF intelligence reports with indicator summaries, historical trend charts, source coverage and interpretation safeguards; CSV and Excel exports, supplementary CSV upload, source status and data-quality reporting.
+- Country-specific and Africa-wide PDF intelligence reports with indicator summaries, country comparisons, annual regional medians, trend charts, source coverage and interpretation safeguards; CSV and Excel exports, supplementary CSV upload, source status and data-quality reporting.
 - Emerald, navy, light and dark appearance themes.
 - World Bank API connector and WHO GHO malaria-indicator catalogue discovery.
 
@@ -48,6 +48,10 @@ No API key is required for the core World Bank, WHO GHO, Our World in Data and M
 ## Country intelligence PDF reports
 
 The Reports & Downloads workspace can generate a country-specific PDF from the currently loaded observations and a selected reference period. Reports include latest and earliest available values by indicator, compact historical trend charts, source-level observation coverage and explicit interpretation safeguards. The report does not impute missing values or fetch new data independently; it reflects the active in-memory dataset, including any validated session upload or selected WHO observations. Indicator identifiers are retained so definitions can be verified in the source catalogue. Install dependencies from `requirements.txt` (including ReportLab) to enable PDF generation.
+
+## Africa-wide annual intelligence reports
+
+The Reports & Downloads workspace can generate a continental PDF using up to eight selected indicators and a chosen reference period. It includes indicator coverage, annual unweighted medians across available country observations, contributing-country counts, and each country's latest available value with its own reference year and source. The median is descriptive and is not a population-weighted continental rate or total. Country values are not forced onto a common year, and the country table is explicitly not a performance ranking. Reports use only observations already loaded in the application; they do not refresh sources, impute missing values or harmonise distinct indicator definitions. Modelled malaria estimates, reported cases and contextual indicators remain separate evidence types.
 
 ## Supplementary CSV format
 

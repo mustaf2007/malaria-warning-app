@@ -223,3 +223,169 @@ def build_country_report_pdf(
 
     doc.build(story, onFirstPage=footer, onLaterPages=footer)
     return buffer.getvalue()
+
+
+
+def build_africa_report_pdf(
+    observations: pd.DataFrame,
+    start_year: int,
+    end_year: int,
+    indicator_codes: list[str],
+    indicator_labels: dict[str, str] | None = None,
+    max_countries_per_indicator: int = 15,
+) -> bytes:
+    """Build a continental report using country-level observations without pooling unlike indicators."""
+    required = {"iso3", "country", "year", "indicator_code", "value", "source"}
+    missing = required - set(observations.columns)
+    if missing:
+        raise ValueError(f"Missing required columns: {', '.join(sorted(missing))}")
+    if int(start_year) > int(end_year):
+        raise ValueError("Start year must be less than or equal to end year.")
+    selected = list(dict.fromkeys(str(code) for code in (indicator_codes or [])))
+    if not selected:
+        raise ValueError("Select at least one indicator for the Africa report.")
+    if len(selected) > 8:
+        raise ValueError("Select no more than eight indicators per report.")
+
+    data = observations.copy()
+    data["year"] = pd.to_numeric(data["year"], errors="coerce")
+    data["value"] = pd.to_numeric(data["value"], errors="coerce")
+    data["iso3"] = data["iso3"].astype(str).str.upper().str.strip()
+    data = data[
+        data["year"].between(int(start_year), int(end_year))
+        & data["indicator_code"].astype(str).isin(selected)
+        & data["iso3"].str.fullmatch(r"[A-Z]{3}", na=False)
+    ].dropna(subset=["year", "indicator_code", "country"])
+    if data.empty or not data["value"].notna().any():
+        raise ValueError("No non-missing observations are available for the selected indicators and period.")
+    data["year"] = data["year"].astype(int)
+    labels = indicator_labels or {}
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name="AfricaTitle", parent=styles["Title"], textColor=colors.HexColor("#123B32"), fontSize=22, leading=27, alignment=TA_CENTER, spaceAfter=5))
+    styles.add(ParagraphStyle(name="AfricaSubtle", parent=styles["Normal"], textColor=colors.HexColor("#53645F"), fontSize=8, leading=11))
+    styles.add(ParagraphStyle(name="AfricaSection", parent=styles["Heading2"], textColor=colors.HexColor("#087F69"), spaceBefore=10, spaceAfter=6))
+    styles.add(ParagraphStyle(name="AfricaBody", parent=styles["BodyText"], fontSize=9, leading=13, spaceAfter=5))
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=18*mm, leftMargin=18*mm, topMargin=18*mm, bottomMargin=17*mm, title="Africa Malaria Annual Intelligence Report", author="Africa Malaria Intelligence")
+    total_countries = int(data["iso3"].nunique())
+    total_rows = int(data["value"].notna().sum())
+    story = [
+        Spacer(1, 7*mm),
+        Paragraph("AFRICA MALARIA INTELLIGENCE", styles["AfricaSubtle"]),
+        Paragraph("AFRICA", styles["AfricaTitle"]),
+        Paragraph("Continental Malaria Intelligence Report", styles["Heading2"]),
+        Paragraph(f"Reference period: {int(start_year)}–{int(end_year)} · {len(selected)} selected indicators", styles["AfricaSubtle"]),
+        Spacer(1, 5*mm),
+        Paragraph("Continental snapshot", styles["AfricaSection"]),
+        Paragraph(
+            f"The selected dataset contains {total_rows:,} non-missing indicator observations across "
+            f"{total_countries} African countries and {data['year'].nunique()} reference years. "
+            "Country and indicator coverage varies; the statistics below are calculated separately for each indicator.",
+            styles["AfricaBody"]),
+        Paragraph(
+            "Method: annual regional summaries are the unweighted median of available country observations for that indicator-year. "
+            "They are not population-weighted continental rates or totals. Each country's latest available observation is shown with its year; "
+            "countries are not forced onto a common reference year. Values from different indicators and units must not be compared directly.",
+            styles["AfricaBody"]),
+    ]
+    overview_rows = [["Indicator", "Countries", "Observations", "Year span", "Latest year"]]
+    for code in selected:
+        subset = data[data["indicator_code"].astype(str) == code]
+        valid = subset[subset["value"].notna()]
+        overview_rows.append([
+            _safe(labels.get(code, code)), str(valid["iso3"].nunique()), str(len(valid)),
+            f"{int(valid['year'].min())}–{int(valid['year'].max())}" if not valid.empty else "—",
+            str(int(valid["year"].max())) if not valid.empty else "—",
+        ])
+    overview = Table(overview_rows, repeatRows=1, colWidths=[65*mm, 23*mm, 28*mm, 28*mm, 22*mm])
+    overview.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#123B32")),
+        ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 7),
+        ("GRID", (0,0), (-1,-1), 0.35, colors.HexColor("#D7E2DE")),
+        ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#F2F7F5")]),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ("TOPPADDING", (0,0), (-1,-1), 5),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+    ]))
+    story.extend([Paragraph("Indicator coverage", styles["AfricaSection"]), overview])
+
+    for code in selected:
+        subset = data[data["indicator_code"].astype(str) == code].copy()
+        valid = subset[subset["value"].notna()].copy()
+        title = labels.get(code, code)
+        story.append(Paragraph(_safe(title), styles["AfricaSection"]))
+        if valid.empty:
+            story.append(Paragraph("No non-missing observations are available for this indicator in the selected period.", styles["AfricaBody"]))
+            continue
+        annual = valid.groupby("year", as_index=False).agg(value=("value", "median"), countries=("iso3", "nunique"))
+        story.append(Paragraph(
+            f"Available observations: {len(valid):,} across {valid['iso3'].nunique()} countries. "
+            "The chart shows the unweighted median of available country values in each year; country coverage is shown below.",
+            styles["AfricaBody"]))
+        story.append(TrendChart(annual[["year", "value"]], f"Unweighted country median · {title}", width=165*mm, height=55*mm))
+        coverage_rows = [["Year", "Countries contributing", "Median value"]]
+        for row in annual.itertuples(index=False):
+            coverage_rows.append([str(int(row.year)), str(int(row.countries)), f"{row.value:,.4g}"])
+        coverage = Table(coverage_rows, repeatRows=1, colWidths=[30*mm, 55*mm, 45*mm])
+        coverage.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#E3EFEB")),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE", (0,0), (-1,-1), 8),
+            ("GRID", (0,0), (-1,-1), 0.35, colors.HexColor("#D7E2DE")),
+            ("TOPPADDING", (0,0), (-1,-1), 4),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+        ]))
+        story.extend([coverage, Spacer(1, 3*mm)])
+        latest_year = valid.groupby("iso3")["year"].max().rename("latest_year")
+        latest = valid.join(latest_year, on="iso3")
+        latest = latest[latest["year"] == latest["latest_year"]].sort_values("value", ascending=False)
+        latest = latest.drop_duplicates(subset=["iso3"], keep="first").head(max(1, int(max_countries_per_indicator)))
+        country_rows = [["Country", "ISO3", "Value", "Reference year", "Source"]]
+        for row in latest.itertuples(index=False):
+            country_rows.append([_safe(row.country), row.iso3, f"{row.value:,.4g}", str(int(row.year)), _safe(str(row.source)[:45])])
+        country_table = Table(country_rows, repeatRows=1, colWidths=[45*mm, 18*mm, 27*mm, 27*mm, 55*mm])
+        country_table.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#123B32")),
+            ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE", (0,0), (-1,-1), 7),
+            ("GRID", (0,0), (-1,-1), 0.35, colors.HexColor("#D7E2DE")),
+            ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#F2F7F5")]),
+            ("TOPPADDING", (0,0), (-1,-1), 4),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+        ]))
+        story.extend([
+            Paragraph("Country observations sorted by value (not a performance ranking)", styles["Heading3"]),
+            country_table,
+            Paragraph(
+                "Latest available country values may refer to different years. Sorting is descriptive only; a high or low value is not automatically better or worse, "
+                "and this table is not a league table of programme performance.", styles["AfricaSubtle"]),
+        ])
+
+    story.extend([
+        Paragraph("Sources and interpretation", styles["AfricaSection"]),
+        Paragraph(
+            "The report is generated only from observations currently loaded in the application. It does not independently refresh upstream sources, "
+            "impute missing values or harmonise different indicator definitions. Source labels are retained in country tables. "
+            "Modelled malaria estimates, nationally reported cases, intervention indicators and contextual health measures are distinct evidence types. "
+            "MAP estimates, where included, are modelled outputs rather than individual surveillance reports. This report is descriptive research and programme intelligence, "
+            "not real-time surveillance, outbreak detection, prediction, diagnosis or treatment advice.", styles["AfricaBody"]),
+        Paragraph(
+            "Always consult the Data Quality & Sources workspace and the original source documentation before policy or programme decisions. "
+            "Coverage, release dates, definitions and reporting years can differ across countries and indicators.", styles["AfricaSubtle"]),
+    ])
+
+    def footer(canvas, document):
+        canvas.saveState()
+        canvas.setStrokeColor(colors.HexColor("#D7E2DE"))
+        canvas.line(18*mm, 13*mm, A4[0]-18*mm, 13*mm)
+        canvas.setFont("Helvetica", 7)
+        canvas.setFillColor(colors.HexColor("#53645F"))
+        canvas.drawString(18*mm, 8*mm, "Africa Malaria Intelligence · Continental research and programme intelligence")
+        canvas.drawRightString(A4[0]-18*mm, 8*mm, f"Page {document.page}")
+        canvas.restoreState()
+
+    doc.build(story, onFirstPage=footer, onLaterPages=footer)
+    return buffer.getvalue()
