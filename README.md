@@ -1,6 +1,8 @@
 # 🦟 Africa Malaria Intelligence
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://gdp-dashboard-template.streamlit.app/)
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://YOUR-STREAMLIT-APP-URL.streamlit.app/)
+
+> **Deployment note:** Replace the placeholder above with the Africa Malaria Intelligence app URL after confirming the deployed Streamlit Community Cloud app URL.
 
 A Streamlit-based, open-data research and programme-intelligence workspace for malaria burden, trends and contextual health indicators across African countries.
 
