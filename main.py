@@ -128,7 +128,7 @@ if upload is not None:
 if not raw.empty:
     raw, quality = validate_observations(raw)
 else:
-    quality = {"rows":0,"missing_values":0,"duplicate_keys_removed":0,"countries":0,"indicators":0,"years":0}
+    quality = {"rows":0,"missing_values":0,"invalid_rows_removed":0,"duplicate_keys_removed":0,"conflicting_keys_excluded":0,"conflicting_rows_excluded":0,"countries":0,"indicators":0,"years":0}
 if load_error:
     st.warning(f"Some public data could not be loaded: {load_error}. The dashboard will continue with any available sources.")
 elif not countries:
@@ -775,9 +775,12 @@ elif nav == "Data Quality & Sources":
         st.dataframe(source_table, use_container_width=True, hide_index=True)
         st.download_button("Download source quality · CSV", quality_tables["sources"].to_csv(index=False).encode("utf-8"), "malaria_source_quality.csv", "text/csv", key="download_source_quality")
     st.markdown("#### Validation and cleaning summary")
-    a,b,c,d=st.columns(4)
-    a.metric("Rows after validation",f"{quality['rows']:,}"); b.metric("Missing values",f"{quality['missing_values']:,}")
-    c.metric("Countries",f"{quality['countries']:,}"); d.metric("Duplicate keys removed",f"{quality['duplicate_keys_removed']:,}")
+    a,b,c,d,e=st.columns(5)
+    a.metric("Rows after validation",f"{quality['rows']:,}")
+    b.metric("Missing values",f"{quality['missing_values']:,}")
+    c.metric("Invalid rows removed",f"{quality['invalid_rows_removed']:,}")
+    d.metric("Duplicate keys removed",f"{quality['duplicate_keys_removed']:,}")
+    e.metric("Conflicting keys excluded",f"{quality['conflicting_keys_excluded']:,}",help=f"{quality['conflicting_rows_excluded']:,} rows excluded because the same source reported different values for the same country, year and indicator.")
     st.markdown("#### Connector status")
     if statuses: st.dataframe(pd.DataFrame(statuses),use_container_width=True,hide_index=True)
     else: st.info("No connector status returned.")
