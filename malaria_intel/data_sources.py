@@ -356,10 +356,10 @@ def resolve_map_wms_layer(layer_ref: str) -> dict[str, Any]:
     if not isinstance(layer_ref, str) or not layer_ref.strip():
         raise ValueError("The selected MAP release does not advertise this raster layer.")
     layer_ref = layer_ref.strip()
-    if not re.fullmatch(r"[A-Za-z0-9_:.\\-]+", layer_ref):
+    if not re.fullmatch(r"[A-Za-z0-9_:.\-]+", layer_ref):
         raise ValueError("MAP raster reference contains unsupported characters.")
     workspace = layer_ref.split("__", 1)[0] if "__" in layer_ref else layer_ref.split(":", 1)[0]
-    if not re.fullmatch(r"[A-Za-z0-9_\\-]+", workspace):
+    if not re.fullmatch(r"[A-Za-z0-9_\-]+", workspace):
         raise ValueError("Invalid MAP GeoServer workspace.")
     endpoint = f"{MAP_WMS_BASE}/{workspace}/ows"
     response = requests.get(
@@ -406,7 +406,7 @@ def resolve_map_wms_layer(layer_ref: str) -> dict[str, Any]:
             "The release may not expose this layer through WMS."
         )
 
-    years = [int(value) for value in re.findall(r"(?<!\\d)(?:19|20|21)\\d{2}(?!\\d)", time_values or "")]
+    years = [int(value) for value in re.findall(r"(?<!\d)(?:19|20|21)\d{2}(?!\d)", time_values or "")]
     return {
         "workspace": workspace,
         "endpoint": endpoint,
@@ -438,7 +438,7 @@ def map_wms_time_for_year(layer_info: dict[str, Any], year: int | None) -> str |
     if "/" not in values:
         matches = [
             item.strip() for item in values.split(",")
-            if re.search(rf"(?<!\\d){year}(?!\\d)", item)
+            if re.search(rf"(?<!\d){year}(?!\d)", item)
         ]
         if matches:
             return matches[0]
