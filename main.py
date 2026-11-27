@@ -10,7 +10,7 @@ from malaria_intel.analytics import answer_data_question, filter_observations, f
 from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS
 from malaria_intel.data_sources import DataSourceError, fetch_african_countries, fetch_indicator_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, fetch_owid_bundle, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series, fetch_map_wms_preview, resolve_map_wms_layer, map_wms_time_for_year
 from malaria_intel.spatial import fetch_country_boundary, fetch_admin1_boundaries, join_admin1_estimates_to_geojson
-from malaria_intel.reports import build_country_report_pdf
+from malaria_intel.reports import build_country_report_pdf, build_africa_report_pdf
 
 st.set_page_config(page_title=APP_NAME, page_icon="🦟", layout="wide", initial_sidebar_state="expanded")
 THEMES = {
@@ -584,6 +584,56 @@ elif nav == "Reports & Downloads":
                     st.session_state["country_report_pdf"],
                     f"{report_iso.lower()}_malaria_intelligence_{report_period[0]}_{report_period[1]}.pdf",
                     "application/pdf", use_container_width=True,
+                )
+        st.divider()
+        st.markdown("#### Africa-wide annual intelligence report")
+        st.caption("Compare country coverage and annual regional patterns across selected indicators. Regional medians are unweighted and are not continental totals or population-weighted rates.")
+        africa_indicator_options = sorted(raw["indicator_code"].dropna().astype(str).unique())
+        default_africa_indicators = [
+            code for code in ["SH.MLR.INCD.P3", "SH.STA.MALR", "OWID:estimated-number-of-malaria-cases", "OWID:number-of-deaths-from-malaria-ghe"]
+            if code in africa_indicator_options
+        ][:4]
+        africa_indicators = st.multiselect(
+            "Continental report indicators",
+            africa_indicator_options,
+            default=default_africa_indicators,
+            format_func=label,
+            key="africa_report_indicators",
+        )
+        if len(africa_indicators) > 8:
+            st.warning("Select no more than eight indicators for one report.")
+        africa_years = pd.to_numeric(raw["year"], errors="coerce").dropna()
+        if africa_years.empty:
+            st.warning("No usable reference years are available for the continental report.")
+        else:
+            africa_min, africa_max = int(africa_years.min()), int(africa_years.max())
+            africa_start = max(africa_min, min(int(year_range[0]), africa_max))
+            africa_end = max(africa_start, min(int(year_range[1]), africa_max))
+            africa_period = st.slider(
+                "Continental report reference period", africa_min, africa_max,
+                (africa_start, africa_end), key="africa_report_period",
+            ) if africa_min < africa_max else (africa_min, africa_max)
+            africa_report_key = (tuple(africa_indicators), africa_period[0], africa_period[1])
+            if st.button("Generate Africa-wide PDF report", type="primary", key="generate_africa_report"):
+                try:
+                    with st.spinner("Building continental comparisons and annual summaries…"):
+                        pdf = build_africa_report_pdf(
+                            raw, africa_period[0], africa_period[1], africa_indicators,
+                            indicator_labels={code: label(code) for code in africa_indicators},
+                        )
+                        st.session_state["africa_report_pdf"] = pdf
+                        st.session_state["africa_report_key"] = africa_report_key
+                    st.success("Africa-wide report generated.")
+                except Exception as exc:
+                    st.session_state.pop("africa_report_pdf", None)
+                    st.session_state.pop("africa_report_key", None)
+                    st.error(f"Africa-wide report could not be generated: {exc}")
+            if st.session_state.get("africa_report_key") == africa_report_key and st.session_state.get("africa_report_pdf"):
+                st.download_button(
+                    "Download Africa-wide intelligence report · PDF",
+                    st.session_state["africa_report_pdf"],
+                    f"africa_malaria_intelligence_{africa_period[0]}_{africa_period[1]}.pdf",
+                    "application/pdf", use_container_width=True, key="download_africa_report",
                 )
         st.divider()
         st.markdown("#### Dataset exports")
