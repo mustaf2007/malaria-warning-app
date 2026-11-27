@@ -118,7 +118,10 @@ def fetch_world_bank_indicator(code: str, start_year: int = 1960, end_year: int 
 
 def discover_who_malaria_indicators() -> list[dict[str, str]]:
     """Discover malaria-related indicator codes from the WHO GHO OData catalogue."""
-    values = _get_odata_rows(f"{WHO_GHO_BASE}/Indicator", {"$format": "json", "$top": 5000})
+    # GHO is OData and returns JSON by default. Some Azure API front doors reject
+    # the explicit $format=json parameter and oversized $top values. Follow the
+    # server-provided @odata.nextLink rather than requesting thousands at once.
+    values = _get_odata_rows(f"{WHO_GHO_BASE}/Indicator", {"$top": 1000})
     matches = []
     for item in values:
         name = str(item.get("IndicatorName") or "")
