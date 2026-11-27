@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.express as px
 import json
 import streamlit as st
-from malaria_intel.analytics import answer_data_question, build_data_quality_tables, filter_observations, forecast_linear, latest_country_values, validate_observations, year_over_year
+from malaria_intel.analytics import answer_data_question, build_data_quality_tables, filter_observations, forecast_linear, latest_country_values, prepare_who_observations, validate_observations, year_over_year
 from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS, year_range_bounds
 from malaria_intel.data_sources import DataSourceError, fetch_dashboard_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series, fetch_map_wms_preview, resolve_map_wms_layer, map_wms_time_for_year
 from malaria_intel.spatial import fetch_country_boundary, fetch_admin1_boundaries, join_admin1_estimates_to_geojson
@@ -809,11 +809,37 @@ elif nav == "Data Quality & Sources":
         chosen = st.selectbox("WHO GHO indicator to retrieve", catalogue, format_func=lambda x: f"{x['name']} ({x['code']})", key="who_indicator_choice")
         if st.button("Fetch selected WHO indicator observations"):
             try:
-                who_rows = fetch_who_gho_indicator(chosen["code"])
-                africa_codes = set(country_names)
-                who_rows = [r for r in who_rows if r["iso3"] in africa_codes]
-                st.session_state.who_rows = who_rows
-                st.success(f"Retrieved {len(who_rows):,} WHO observations for African countries. Revisit this workspace to include them in the analytical views.")
+                fetched_rows = fetch_who_gho_indicator(chosen["code"])
+                who_rows = prepare_who_observations(fetched_rows, country_names)
+                if not who_rows:
+                    st.session_state.who_rows = [
+                        row for row in st.session_state.get("who_rows", [])
+                        if row.get("indicator_code") != chosen["code"]
+                    ]
+                    st.warning(
+                        f"WHO returned {len(fetched_rows):,} rows, but none matched the "
+                        "African country catalogue with a valid whole-number reference year. "
+                        "No observations were added for this indicator."
+                    )
+                else:
+                    existing = [
+                        row for row in st.session_state.get("who_rows", [])
+                        if row.get("indicator_code") != chosen["code"]
+                    ]
+                    st.session_state.who_rows = existing + who_rows
+                    numeric_count = sum(row.get("value") is not None for row in who_rows)
+                    country_count = len({row["iso3"] for row in who_rows})
+                    year_min = min(row["year"] for row in who_rows)
+                    year_max = max(row["year"] for row in who_rows)
+                    st.session_state.who_indicator_label = f"{chosen['name']} ({chosen['code']})"
+                    st.success(
+                        f"Added {len(who_rows):,} WHO observations for {country_count} African "
+                        f"countries ({year_min}–{year_max}); {numeric_count:,} have numeric values."
+                    )
+                    st.caption(
+                        "This selected WHO indicator is now included in the active dataset. "
+                        "Fetching it again replaces its previous WHO rows rather than duplicating them."
+                    )
             except Exception as exc: st.error(f"WHO indicator retrieval failed: {exc}")
     st.markdown("#### Interpretation safeguards")
     st.markdown("- Modelled estimates, reported counts and contextual health indicators are not interchangeable.\n- Latest years may differ across countries.\n- Missing values are not zero.\n- Country-level statistics do not establish subnational outbreak conditions.\n- This is a research and programme-intelligence tool, not a diagnostic or treatment system.")
