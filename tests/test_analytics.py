@@ -144,3 +144,27 @@ def test_data_quality_tables_empty_frame_returns_empty_tables():
     assert result["indicators"].empty
     assert result["sources"].empty
     assert result["coverage"].empty
+
+
+def test_validate_excludes_conflicting_values_from_same_source(observations):
+    extra = pd.DataFrame([{
+        "iso3": "SOM", "country": "Somalia", "year": 2023,
+        "indicator_code": "SH.MLR.INCD.P3", "value": 99.0, "source": "Test"
+    }])
+    clean, quality = validate_observations(pd.concat([observations, extra], ignore_index=True))
+    somalia_latest = clean[(clean.iso3 == "SOM") & (clean.year == 2023)]
+    assert somalia_latest.empty
+    assert quality["conflicting_keys_excluded"] == 1
+    assert quality["conflicting_rows_excluded"] == 2
+
+
+def test_validate_prefers_observed_value_over_missing_duplicate(observations):
+    extra = pd.DataFrame([{
+        "iso3": "SOM", "country": "Somalia", "year": 2023,
+        "indicator_code": "SH.MLR.INCD.P3", "value": None, "source": "Test"
+    }])
+    clean, quality = validate_observations(pd.concat([observations, extra], ignore_index=True))
+    row = clean[(clean.iso3 == "SOM") & (clean.year == 2023)].iloc[0]
+    assert row["value"] == 35.0
+    assert quality["duplicate_keys_removed"] == 1
+    assert quality["conflicting_keys_excluded"] == 0
