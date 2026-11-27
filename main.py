@@ -128,7 +128,7 @@ if upload is not None:
 if not raw.empty:
     raw, quality = validate_observations(raw)
 else:
-    quality = {"rows":0,"missing_values":0,"duplicate_keys_removed":0,"countries":0,"indicators":0,"years":0}
+    quality = {"rows":0,"missing_values":0,"invalid_rows_removed":0,"duplicate_keys_removed":0,"conflicting_keys_excluded":0,"conflicting_rows_excluded":0,"countries":0,"indicators":0,"years":0}
 if load_error:
     st.warning(f"Some public data could not be loaded: {load_error}. The dashboard will continue with any available sources.")
 elif not countries:
