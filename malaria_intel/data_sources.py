@@ -274,6 +274,12 @@ def _jsonstat_rows(payload: dict[str, Any], geography_level: str, metric: str, s
     geo_index = (geo_dim.get("category") or {}).get("index") or {}
     year_index = (year_dim.get("category") or {}).get("index") or {}
     geo_labels = (geo_dim.get("category") or {}).get("label") or {}
+    if isinstance(geo_index, list):
+        geo_index = {code: index for index, code in enumerate(geo_index)}
+    if isinstance(year_index, list):
+        year_index = {year: index for index, year in enumerate(year_index)}
+    if not isinstance(geo_index, dict) or not isinstance(year_index, dict):
+        raise DataSourceError("MAP JSON-stat category indexes have an unsupported format.")
     years = sorted(((int(year), int(index)) for year, index in year_index.items()), key=lambda x: x[1])
     geos = sorted(((str(code), int(index)) for code, index in geo_index.items()), key=lambda x: x[1])
     values = payload.get("value", [])
