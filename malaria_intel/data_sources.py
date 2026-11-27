@@ -1,0 +1,343 @@
+"""Open-data connectors. No credentials or paid API keys are required."""
+from __future__ import annotations
+import time
+from io import StringIO
+from typing import Any
+import pandas as pd
+import requests
+from .config import INDICATORS, OWID_DATASETS, REQUEST_TIMEOUT, USER_AGENT
+
+WB_BASE = "https://api.worldbank.org/v2"
+WHO_GHO_BASE = "https://ghoapi.azureedge.net/api"
+
+class DataSourceError(RuntimeError):
+    """Raised when a public source cannot provide a usable response."""
+
+
+def _get_json(url: str, params: dict[str, Any] | None = None) -> Any:
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    last_error = None
+    for attempt in range(3):
+        try:
+            response = requests.get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT)
+            response.raise_for_status()
+            return response.json()
+        except (requests.RequestException, ValueError) as exc:
+            last_error = exc
+            if attempt < 2:
+                time.sleep(0.6 * (attempt + 1))
+    raise DataSourceError(f"Unable to retrieve public data: {last_error}")
+
+
+
+def _get_odata_rows(url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Read all pages from a WHO OData collection using its server-provided next link."""
+    payload = _get_json(url, params)
+    output = list(payload.get("value", [])) if isinstance(payload, dict) else []
+    next_url = payload.get("@odata.nextLink") or payload.get("odata.nextLink") if isinstance(payload, dict) else None
+    pages = 0
+    while next_url and pages < 100:
+        payload = _get_json(next_url)
+        if not isinstance(payload, dict):
+            break
+        output.extend(payload.get("value", []))
+        next_url = payload.get("@odata.nextLink") or payload.get("odata.nextLink")
+        pages += 1
+    return output
+
+
+def fetch_african_countries() -> list[dict[str, str]]:
+    """Return World Bank country metadata for African economies only."""
+    payload = _get_json(f"{WB_BASE}/country", {"format": "json", "per_page": 400})
+    if not isinstance(payload, list) or len(payload) < 2 or not isinstance(payload[1], list):
+        raise DataSourceError("World Bank country metadata returned an unexpected format.")
+    countries = []
+    for row in payload[1]:
+        region = (row.get("region") or {}).get("value", "")
+        iso3 = row.get("id")
+        iso2 = row.get("iso2Code")
+        if (region == "Sub-Saharan Africa" or iso3 in {"DZA", "EGY", "LBY", "MAR", "TUN", "SDN", "MRT"}) and iso3 and iso2 and iso2 != "ZH":
+            countries.append({"iso3": iso3, "iso2": iso2, "name": row.get("name", iso3), "region": region})
+    return sorted(countries, key=lambda item: item["name"])
+
+
+def fetch_world_bank_indicator(code: str, start_year: int = 2000, end_year: int = 2024) -> list[dict[str, Any]]:
+    """Fetch an indicator for all countries; null observations are retained as missing."""
+    if not code or not code.replace(".", "").replace("_", "").isalnum():
+        raise ValueError("Invalid World Bank indicator code.")
+    page = 1
+    rows: list[dict[str, Any]] = []
+    while True:
+        payload = _get_json(
+            f"{WB_BASE}/country/all/indicator/{code}",
+            {"format": "json", "per_page": 20000, "page": page, "date": f"{start_year}:{end_year}"},
+        )
+        if not isinstance(payload, list) or len(payload) < 2:
+            raise DataSourceError(f"World Bank returned an unexpected response for {code}.")
+        metadata, observations = payload[0], payload[1]
+        for item in observations or []:
+            country = item.get("country") or {}
+            iso3 = (item.get("countryiso3code") or "").strip()
+            value = item.get("value")
+            if iso3 and item.get("date"):
+                rows.append({
+                    "iso3": iso3,
+                    "country": country.get("value", iso3),
+                    "year": int(item["date"]),
+                    "indicator_code": code,
+                    "value": float(value) if value is not None else None,
+                    "source": "World Bank",
+                    "source_url": f"https://data.worldbank.org/indicator/{code}",
+                    "last_updated": item.get("obs_status") or None,
+                })
+        if not metadata or page >= int(metadata.get("pages", 1)):
+            break
+        page += 1
+    return rows
+
+
+def discover_who_malaria_indicators() -> list[dict[str, str]]:
+    """Discover malaria-related indicator codes from the WHO GHO OData catalogue."""
+    values = _get_odata_rows(f"{WHO_GHO_BASE}/Indicator", {"$format": "json", "$top": 5000})
+    matches = []
+    for item in values:
+        name = str(item.get("IndicatorName") or "")
+        code = str(item.get("IndicatorCode") or "")
+        if code and "malaria" in name.lower():
+            matches.append({"code": code, "name": name, "source": "WHO Global Health Observatory"})
+    return sorted(matches, key=lambda item: item["name"])
+
+
+def fetch_who_gho_indicator(code: str) -> list[dict[str, Any]]:
+    """Fetch a selected WHO GHO indicator code; source fields are preserved."""
+    if not code or not code.replace("_", "").isalnum():
+        raise ValueError("Invalid WHO GHO indicator code.")
+    values = _get_odata_rows(f"{WHO_GHO_BASE}/{code}", {"$format": "json", "$top": 10000})
+    output = []
+    for item in values:
+        year = item.get("TimeDim")
+        country = item.get("SpatialDim")
+        value = item.get("NumericValue")
+        if year and country:
+            try:
+                output.append({
+                    "iso3": str(country), "country": str(country), "year": int(year),
+                    "indicator_code": code, "value": float(value) if value is not None else None,
+                    "source": "WHO Global Health Observatory",
+                    "source_url": f"https://www.who.int/data/gho/data/indicators/indicator-details/GHO/{code}",
+                    "last_updated": item.get("TimeDimensionValue"),
+                })
+            except (TypeError, ValueError):
+                continue
+    return output
+
+
+def fetch_indicator_bundle(start_year: int = 2000, end_year: int = 2024, codes: list[str] | None = None) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Fetch available catalogue indicators independently; failures are reported, not hidden."""
+    selected = codes or [item.code for item in INDICATORS]
+    all_rows: list[dict[str, Any]] = []
+    statuses: list[dict[str, str]] = []
+    for code in selected:
+        try:
+            rows = fetch_world_bank_indicator(code, start_year, end_year)
+            all_rows.extend(rows)
+            valid = sum(row["value"] is not None for row in rows)
+            statuses.append({"code": code, "status": "loaded" if valid else "no observations", "records": str(len(rows)), "non_missing": str(valid), "source": "World Bank"})
+        except Exception as exc:
+            statuses.append({"code": code, "status": "unavailable", "records": "0", "non_missing": "0", "source": f"World Bank: {exc}"})
+    return all_rows, statuses
+
+
+def fetch_owid_grapher(slug: str, start_year: int = 2000, end_year: int = 2024) -> list[dict[str, Any]]:
+    """Fetch a documented Our World in Data Grapher CSV and normalize country rows."""
+    if slug not in OWID_DATASETS:
+        raise ValueError("The requested Our World in Data series is not in the approved catalogue.")
+    url = f"https://ourworldindata.org/grapher/{slug}.csv?v=1&csvType=full&useColumnShortNames=false"
+    try:
+        response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        frame = pd.read_csv(StringIO(response.text))
+    except Exception as exc:
+        raise DataSourceError(f"Our World in Data series {slug} could not be retrieved: {exc}") from exc
+    required = {"Entity", "Code", "Year"}
+    if not required.issubset(frame.columns):
+        raise DataSourceError(f"Unexpected Our World in Data CSV schema for {slug}.")
+    value_columns = [column for column in frame.columns if column not in required]
+    if len(value_columns) != 1:
+        raise DataSourceError(f"Expected one value column in Our World in Data series {slug}.")
+    value_column = value_columns[0]
+    frame["Year"] = pd.to_numeric(frame["Year"], errors="coerce")
+    frame[value_column] = pd.to_numeric(frame[value_column], errors="coerce")
+    frame = frame[(frame["Year"] >= start_year) & (frame["Year"] <= end_year)]
+    output = []
+    for item in frame.to_dict(orient="records"):
+        iso3 = str(item.get("Code") or "").strip()
+        if len(iso3) != 3 or iso3.lower() == "nan":
+            continue
+        output.append({
+            "iso3": iso3.upper(), "country": str(item.get("Entity") or iso3),
+            "year": int(item["Year"]), "indicator_code": f"OWID:{slug}",
+            "value": float(item[value_column]) if pd.notna(item[value_column]) else None,
+            "source": "Our World in Data (original source noted in dataset metadata)",
+            "source_url": url, "last_updated": None,
+        })
+    return output
+
+
+def fetch_owid_bundle(start_year: int = 2000, end_year: int = 2024) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Fetch each approved OWID malaria series independently and report connector status."""
+    rows: list[dict[str, Any]] = []
+    statuses: list[dict[str, str]] = []
+    for slug in OWID_DATASETS:
+        try:
+            current = fetch_owid_grapher(slug, start_year, end_year)
+            rows.extend(current)
+            statuses.append({"code": f"OWID:{slug}", "status": "loaded" if current else "no observations", "records": str(len(current)), "non_missing": str(sum(r["value"] is not None for r in current)), "source": "Our World in Data"})
+        except Exception as exc:
+            statuses.append({"code": f"OWID:{slug}", "status": "unavailable", "records": "0", "non_missing": "0", "source": f"Our World in Data: {exc}"})
+    return rows, statuses
+
+
+# Malaria Atlas Project public Trends API. Metric path tokens are case-sensitive.
+MAP_BASE = "https://data.malariaatlas.org/map-platform-app-backend/api/v1"
+MAP_METRICS = {
+    "Pf_incidence-count": {"name": "P. falciparum clinical cases", "group": "Burden", "unit": "estimated cases", "availability_key": "pfIncidenceRate"},
+    "Pf_incidence-rate": {"name": "P. falciparum clinical incidence", "group": "Burden", "unit": "cases per 1,000 population per year", "availability_key": "pfIncidenceRate"},
+    "Pf_PR-rate": {"name": "P. falciparum parasite prevalence (PfPR2-10)", "group": "Burden", "unit": "proportion", "availability_key": "pfpr"},
+    "Pf_mortality-count": {"name": "P. falciparum deaths", "group": "Burden", "unit": "estimated deaths", "availability_key": "pfMortalityRate"},
+    "Pf_mortality-rate": {"name": "P. falciparum mortality rate", "group": "Burden", "unit": "deaths per 100,000 population per year", "availability_key": "pfMortalityRate"},
+    "Pv_incidence-count": {"name": "P. vivax clinical cases", "group": "Burden", "unit": "estimated cases", "availability_key": "pvIncidenceRate"},
+    "Pv_incidence-rate": {"name": "P. vivax clinical incidence", "group": "Burden", "unit": "cases per 1,000 population per year", "availability_key": "pvIncidenceRate"},
+    "Pv_PR-rate": {"name": "P. vivax parasite prevalence", "group": "Burden", "unit": "proportion", "availability_key": "pvpr"},
+    "Antimalarial_EFT-rate": {"name": "Effective antimalarial treatment", "group": "Interventions", "unit": "proportion", "availability_key": "effectiveTreatment"},
+    "IRS_coverage-rate": {"name": "Indoor residual spraying coverage", "group": "Interventions", "unit": "proportion", "availability_key": "irsCoverage"},
+    "ITN_use-rate": {"name": "Population sleeping under insecticide-treated nets", "group": "Interventions", "unit": "proportion", "availability_key": "itnUse"},
+    "ITN_access-rate": {"name": "Population with access to insecticide-treated nets", "group": "Interventions", "unit": "proportion", "availability_key": "itnAccess"},
+    "ITN_use_rate-rate": {"name": "ITN use among people with household access", "group": "Interventions", "unit": "proportion", "availability_key": "itnUseRate"},
+}
+
+
+def fetch_map_releases() -> list[dict[str, Any]]:
+    """Fetch MAP release metadata; callers must choose an explicit release."""
+    payload = _get_json(f"{MAP_BASE}/trends/metadata")
+    if not isinstance(payload, list):
+        raise DataSourceError("MAP release metadata returned an unexpected schema.")
+    releases = []
+    for item in payload:
+        if not isinstance(item, dict) or not item.get("version"):
+            continue
+        releases.append({
+            "version": str(item["version"]),
+            "data_end_year": int(item.get("dataEndYear") or 0),
+            "provisional": bool(item.get("provisional", False)),
+            "admin_version": (item.get("geoServerRefs") or {}).get("mapAdminVersion", ""),
+            "geo_server_refs": item.get("geoServerRefs") or {},
+        })
+    return releases
+
+
+def fetch_map_admin1(country_iso3: str, admin_version: str) -> list[dict[str, str]]:
+    """Resolve subnational admin-1 IDs for one African country and MAP boundary release."""
+    if len(country_iso3) != 3 or not country_iso3.isalpha():
+        raise ValueError("Country must be a three-letter ISO3 code.")
+    if not admin_version or not all(ch.isalnum() or ch in "._-" for ch in admin_version):
+        raise ValueError("Invalid MAP administrative boundary version.")
+    payload = _get_json(
+        f"https://data.malariaatlas.org/admin-unit-metadata/admin-units/ADMIN1",
+        {"mapAdmin": admin_version},
+    )
+    if isinstance(payload, dict):
+        records = payload.get("features") or payload.get("data") or payload.get("results") or []
+    elif isinstance(payload, list):
+        records = payload
+    else:
+        raise DataSourceError("MAP administrative-unit catalogue returned an unexpected schema.")
+    output = []
+    for item in records:
+        props = item.get("properties", item) if isinstance(item, dict) else {}
+        iso3 = str(props.get("iso3") or props.get("ISO3") or "").upper()
+        if iso3 != country_iso3.upper():
+            continue
+        unit_id = props.get("id") or props.get("ID")
+        name = props.get("name") or props.get("NAME_1") or props.get("admin1Name")
+        if unit_id is not None and name:
+            output.append({"id": str(unit_id), "name": str(name), "country": str(props.get("countryName") or props.get("country") or country_iso3), "iso3": iso3})
+    return sorted(output, key=lambda item: item["name"])
+
+
+def _jsonstat_rows(payload: dict[str, Any], geography_level: str, metric: str, stat: str, source_url: str) -> list[dict[str, Any]]:
+    """Decode MAP JSON-stat data using category indexes, not assumed positional order."""
+    dimension = payload.get("dimension") or {}
+    geo_key = "ISO" if geography_level == "admin0" else "ID"
+    geo_dim = dimension.get(geo_key) or {}
+    year_dim = dimension.get("Year") or {}
+    geo_index = (geo_dim.get("category") or {}).get("index") or {}
+    year_index = (year_dim.get("category") or {}).get("index") or {}
+    geo_labels = (geo_dim.get("category") or {}).get("label") or {}
+    if isinstance(geo_index, list):
+        geo_index = {code: index for index, code in enumerate(geo_index)}
+    if isinstance(year_index, list):
+        year_index = {year: index for index, year in enumerate(year_index)}
+    if not isinstance(geo_index, dict) or not isinstance(year_index, dict):
+        raise DataSourceError("MAP JSON-stat category indexes have an unsupported format.")
+    years = sorted(((int(year), int(index)) for year, index in year_index.items()), key=lambda x: x[1])
+    geos = sorted(((str(code), int(index)) for code, index in geo_index.items()), key=lambda x: x[1])
+    values = payload.get("value", [])
+    if isinstance(values, dict):
+        value_at = lambda index: values.get(str(index))
+    else:
+        value_at = lambda index: values[index] if index < len(values) else None
+    expected = len(geos) * len(years)
+    if len(values) < expected:
+        raise DataSourceError(f"MAP JSON-stat values are incomplete: expected {expected}, received {len(values)}.")
+    output = []
+    for geo_code, geo_pos in geos:
+        for year, year_pos in years:
+            raw_value = value_at(geo_pos * len(years) + year_pos)
+            try:
+                value = float(raw_value) if raw_value is not None else None
+            except (TypeError, ValueError):
+                value = None
+            # MAP documents zero as a possible missing-estimate sentinel.
+            # Preserve it but mark it explicitly for downstream interpretation.
+            output.append({
+                "iso3": geo_code if geography_level == "admin0" else "",
+                "admin1_id": geo_code if geography_level == "admin1" else "",
+                "country": geo_labels.get(geo_code, geo_code),
+                "year": year, "indicator_code": f"MAP:{metric}",
+                "value": value, "source": f"Malaria Atlas Project · {stat}",
+                "source_url": source_url, "map_release": payload.get("version"),
+                "map_stat": stat, "possible_missing_zero": value == 0,
+            })
+    return output
+
+
+def fetch_map_series(metric: str, version: str, geography_level: str = "admin0",
+                     iso3: str | None = None, admin_unit_id: str | None = None,
+                     stat: str = "mean") -> list[dict[str, Any]]:
+    """Fetch a filtered MAP national or subnational time series from one explicit release."""
+    if metric not in MAP_METRICS:
+        raise ValueError("Unsupported MAP metric.")
+    if stat not in {"mean", "lci", "uci"}:
+        raise ValueError("Statistic must be mean, lci or uci.")
+    if geography_level not in {"admin0", "admin1"}:
+        raise ValueError("Geography level must be admin0 or admin1.")
+    if not version or not version.isdigit():
+        raise ValueError("Select a valid explicit MAP release.")
+    if bool(iso3) == bool(admin_unit_id):
+        raise ValueError("Provide exactly one geography filter: ISO3 or administrative-unit ID.")
+    if iso3 and (geography_level != "admin0" and geography_level != "admin1"):
+        raise ValueError("Invalid geography filter.")
+    if admin_unit_id and not admin_unit_id.isdigit():
+        raise ValueError("Invalid administrative-unit ID.")
+    params = {"version": version, "iso3": iso3} if iso3 else {"version": version, "adminUnitId": admin_unit_id}
+    url = f"{MAP_BASE}/trends/{'malaria' if MAP_METRICS[metric]['group'] == 'Burden' else 'interventions'}/{metric}/{geography_level}/{stat}"
+    payload = _get_json(url, params)
+    if not isinstance(payload, dict) or "dimension" not in payload or "value" not in payload:
+        raise DataSourceError("MAP Trends API returned an unexpected JSON-stat response.")
+    rows = _jsonstat_rows(payload, geography_level, metric, stat, url)
+    for row in rows:
+        row["source_url"] = f"{url}?version={version}&" + (f"iso3={iso3}" if iso3 else f"adminUnitId={admin_unit_id}")
+        row["map_release"] = version
+        row["map_provisional"] = None
+    return rows
