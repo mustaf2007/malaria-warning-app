@@ -23,6 +23,29 @@ def test_validate_removes_duplicate_and_counts_missing(observations):
     assert quality["duplicate_keys_removed"] == 1
     assert quality["missing_values"] == 1
 
+def test_validate_drops_fractional_years_and_invalid_country_codes(observations):
+    extra = pd.DataFrame([
+        {"iso3":"SOM","country":"Somalia","year":2020.5,"indicator_code":"INC","value":1.0,"source":"Upload"},
+        {"iso3":"nan","country":"Unknown","year":2021,"indicator_code":"INC","value":2.0,"source":"Upload"},
+        {"iso3":" som ","country":"Somalia","year":2022,"indicator_code":"INC","value":3.0,"source":"Upload"},
+        {"iso3":"KEN","country":"Kenya","year":"not-a-year","indicator_code":"INC","value":4.0,"source":"Upload"},
+    ])
+    clean, quality = validate_observations(pd.concat([observations, extra], ignore_index=True))
+    assert len(clean) == len(observations) + 1
+    assert clean.iloc[-1]["iso3"] == "SOM"
+    assert clean.iloc[-1]["year"] == 2022
+
+
+def test_validate_keeps_missing_values_but_rejects_invalid_keys(observations):
+    extra = pd.DataFrame([{
+        "iso3":"SOM","country":"Somalia","year":2024,"indicator_code":"INC",
+        "value":None,"source":"Upload"
+    }])
+    clean, quality = validate_observations(pd.concat([observations, extra], ignore_index=True))
+    assert len(clean) == len(observations) + 1
+    assert quality["missing_values"] == 1
+
+
 def test_validate_requires_schema():
     with pytest.raises(ValueError, match="Missing required columns"):
         validate_observations(pd.DataFrame({"year":[2020]}))
