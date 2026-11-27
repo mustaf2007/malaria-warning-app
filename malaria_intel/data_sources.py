@@ -406,7 +406,7 @@ def resolve_map_wms_layer(layer_ref: str) -> dict[str, Any]:
             "The release may not expose this layer through WMS."
         )
 
-    years = sorted({int(value) for value in re.findall(r"(?<!\\d)(?:19|20|21)\\d{2}(?!\\d)", time_values or "")})
+    years = sorted({int(value) for value in re.findall(r"(?<!\d)(?:19|20|21)\d{2}(?!\d)", time_values or "")})
     if time_values and "/" in time_values and len(years) >= 2:
         available_years = list(range(years[0], years[-1] + 1))
     else:
