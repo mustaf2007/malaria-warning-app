@@ -348,18 +348,18 @@ def fetch_map_series(metric: str, version: str, geography_level: str = "admin0",
 MAP_WMS_BASE = "https://data.malariaatlas.org/geoserver"
 
 
-def resolve_map_wms_layer(layer_ref: str) -> dict[str, str]:
-    """Resolve a release-provided MAP raster reference against WMS capabilities."""
+def resolve_map_wms_layer(layer_ref: str) -> dict[str, Any]:
+    """Resolve a release raster and its published temporal dimension from WMS capabilities."""
     import re
     import xml.etree.ElementTree as ET
 
     if not isinstance(layer_ref, str) or not layer_ref.strip():
         raise ValueError("The selected MAP release does not advertise this raster layer.")
     layer_ref = layer_ref.strip()
-    if not re.fullmatch(r"[A-Za-z0-9_:.\-]+", layer_ref):
+    if not re.fullmatch(r"[A-Za-z0-9_:.\\-]+", layer_ref):
         raise ValueError("MAP raster reference contains unsupported characters.")
     workspace = layer_ref.split("__", 1)[0] if "__" in layer_ref else layer_ref.split(":", 1)[0]
-    if not re.fullmatch(r"[A-Za-z0-9_\-]+", workspace):
+    if not re.fullmatch(r"[A-Za-z0-9_\\-]+", workspace):
         raise ValueError("Invalid MAP GeoServer workspace.")
     endpoint = f"{MAP_WMS_BASE}/{workspace}/ows"
     response = requests.get(
@@ -373,10 +373,6 @@ def resolve_map_wms_layer(layer_ref: str) -> dict[str, str]:
         root = ET.fromstring(response.content)
     except ET.ParseError as exc:
         raise DataSourceError("MAP WMS capabilities returned invalid XML.") from exc
-    names = []
-    for element in root.iter():
-        if element.tag.rsplit("}", 1)[-1] == "Name" and element.text:
-            names.append(element.text.strip())
     candidates = {layer_ref}
     if "__" in layer_ref:
         prefix, suffix = layer_ref.split("__", 1)
@@ -384,29 +380,87 @@ def resolve_map_wms_layer(layer_ref: str) -> dict[str, str]:
     if ":" in layer_ref:
         prefix, suffix = layer_ref.split(":", 1)
         candidates.add(f"{prefix}__{suffix}")
-    matched = next((name for name in names if name in candidates), None)
+
+    matched = None
+    time_values = None
+    for layer in root.iter():
+        if layer.tag.rsplit("}", 1)[-1] != "Layer":
+            continue
+        direct = {
+            child.tag.rsplit("}", 1)[-1]: child
+            for child in list(layer)
+        }
+        name_node = direct.get("Name")
+        if name_node is None or not name_node.text or name_node.text.strip() not in candidates:
+            continue
+        matched = name_node.text.strip()
+        for child in list(layer):
+            if child.tag.rsplit("}", 1)[-1] in {"Dimension", "Extent"} and child.attrib.get("name", "").lower() == "time":
+                time_values = (child.text or "").strip() or None
+                break
+        break
+
     if not matched:
         raise DataSourceError(
             f"MAP WMS did not advertise the release layer '{layer_ref}'. "
             "The release may not expose this layer through WMS."
         )
-    return {"workspace": workspace, "endpoint": endpoint, "layer": matched}
+
+    years = [int(value) for value in re.findall(r"(?<!\\d)(?:19|20|21)\\d{2}(?!\\d)", time_values or "")]
+    return {
+        "workspace": workspace,
+        "endpoint": endpoint,
+        "layer": matched,
+        "time_values": time_values,
+        "min_year": min(years) if years else None,
+        "max_year": max(years) if years else None,
+    }
 
 
-def fetch_map_wms_preview(layer_ref: str, year: int, width: int = 1600, height: int = 900) -> bytes:
+def map_wms_time_for_year(layer_info: dict[str, Any], year: int | None) -> str | None:
+    """Return a WMS TIME value that is valid for the selected layer and year."""
+    import re
+
+    values = layer_info.get("time_values")
+    if not values:
+        if year is not None:
+            raise ValueError("This MAP raster is static and does not accept a reference year.")
+        return None
+    if not isinstance(year, int):
+        raise ValueError("Select a year for this time-varying MAP raster.")
+    if year < int(layer_info["min_year"]) or year > int(layer_info["max_year"]):
+        raise ValueError(
+            f"Year {year} is outside this raster's published range "
+            f"({layer_info['min_year']}–{layer_info['max_year']})."
+        )
+    # GeoServer may advertise a compact interval or a comma-separated list
+    # of exact timestamps. Preserve the exact advertised timestamp when listed.
+    if "/" not in values:
+        matches = [
+            item.strip() for item in values.split(",")
+            if re.search(rf"(?<!\\d){year}(?!\\d)", item)
+        ]
+        if matches:
+            return matches[0]
+        raise DataSourceError(f"MAP WMS does not advertise a timestamp for {year}.")
+    return f"{year}-01-01T00:00:00.000Z"
+
+def fetch_map_wms_preview(layer_ref: str, year: int | None, width: int = 1600, height: int = 900) -> bytes:
     """Fetch a bounded Africa-wide WMS preview of a selected MAP 5 km raster."""
-    if not isinstance(year, int) or year < 2000 or year > 2100:
+    if year is not None and (not isinstance(year, int) or year < 1900 or year > 2100):
         raise ValueError("Select a valid raster year.")
     if not (400 <= width <= 2000 and 300 <= height <= 1400):
         raise ValueError("Raster preview dimensions are outside the allowed limits.")
     resolved = resolve_map_wms_layer(layer_ref)
+    time_value = map_wms_time_for_year(resolved, year)
     params = {
         "service": "WMS", "version": "1.1.1", "request": "GetMap",
         "layers": resolved["layer"], "styles": "", "srs": "EPSG:4326",
         "bbox": "-18,-36,52,38", "width": str(width), "height": str(height),
         "format": "image/png", "transparent": "true",
-        "time": f"{year}-01-01T00:00:00Z",
     }
+    if time_value:
+        params["time"] = time_value
     response = requests.get(
         resolved["endpoint"], params=params,
         headers={"User-Agent": USER_AGENT, "Accept": "image/png"},
