@@ -27,18 +27,18 @@ streamlit run streamlit_app.py
 
 ## Data and provenance
 
-The application requests country metadata and indicator observations from the World Bank API. The indicator catalogue is maintained in `malaria_intel/config.py`; each indicator has a code, definition, unit, group and interpretation type. The WHO Global Health Observatory OData catalogue can be queried from the Data Quality & Sources workspace to discover malaria-related indicators.
+The application requests country metadata and indicator observations from the World Bank API, retrieves selected WHO Global Health Observatory (GHO) malaria series through its OData API, and imports approved Our World in Data Grapher CSV series (estimated cases, estimated deaths and malaria death rate). The indicator catalogue is maintained in `malaria_intel/config.py`; each indicator has a code, definition, unit, group and interpretation type. The WHO GHO OData catalogue can be queried from the Data Quality & Sources workspace to discover additional malaria-related indicators and fetch selected series.
 
-The following authoritative resources are linked for further data integration and verification:
+The following authoritative resources are linked for data integration, further verification and future expansion:
 
 - [WHO Global Health Observatory](https://www.who.int/data/gho)
 - [WHO World Malaria Report](https://www.who.int/teams/global-malaria-programme/reports/world-malaria-report)
-- [Malaria Atlas Project](https://malariaatlas.org/)
+- [Malaria Atlas Project](https://malariaatlas.org/) — open modelled raster, country and subnational data. Direct MAP raster integration is not currently implemented; use its documented downloads and the supplementary data workflow for additional datasets.
 - [World Bank Open Data](https://data.worldbank.org/)
 - [UNICEF Data](https://data.unicef.org/)
 - [Our World in Data — Malaria](https://ourworldindata.org/malaria)
 
-No API key is required for the core World Bank and WHO catalogue requests. Source availability, API uptime, country coverage and indicator coverage vary. The application reports unavailable indicators rather than silently filling or fabricating values. Some World Bank indicator codes may return no observations for a given period or country; verify the live connector status before interpretation.
+No API key is required for the core World Bank, WHO GHO and Our World in Data public requests. Source availability, API uptime, country coverage and indicator coverage vary. The application reports unavailable indicators rather than silently filling or fabricating values. Some World Bank indicator codes may return no observations for a given period or country; verify the live connector status before interpretation.
 
 ## Supplementary CSV format
 
