@@ -95,7 +95,7 @@ def test_resolve_map_wms_layer_rejects_unadvertised_layer(monkeypatch):
         data_sources.resolve_map_wms_layer("Malaria__202508_Global_Pf_Incidence_Rate")
 
 def test_map_wms_preview_checks_image_and_requests_selected_year(monkeypatch):
-    png=b"\\x89PNG\\r\\n\\x1a\\n" + b"test-image"
+    png=bytes([137,80,78,71,13,10,26,10]) + b"test-image"
     class Capabilities:
         content=b'<WMS_Capabilities><Capability><Layer><Name>Malaria:202508_Global_Pf_Incidence_Rate</Name></Layer></Capability></WMS_Capabilities>'
         headers={"Content-Type":"text/xml"}
