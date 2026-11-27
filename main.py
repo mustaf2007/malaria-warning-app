@@ -11,6 +11,7 @@ from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR,
 from malaria_intel.data_sources import DataSourceError, fetch_african_countries, fetch_indicator_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, fetch_owid_bundle, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series, fetch_map_wms_preview, resolve_map_wms_layer, map_wms_time_for_year
 from malaria_intel.spatial import fetch_country_boundary, fetch_admin1_boundaries, join_admin1_estimates_to_geojson
 from malaria_intel.reports import build_country_report_pdf, build_africa_report_pdf
+from malaria_intel.benchmarking import country_benchmark, benchmark_coverage
 
 st.set_page_config(page_title=APP_NAME, page_icon="🦟", layout="wide", initial_sidebar_state="expanded")
 THEMES = {
@@ -120,7 +121,7 @@ else:
     quality = {"rows":0,"missing_values":0,"duplicate_keys_removed":0,"countries":0,"indicators":0,"years":0}
 if load_error: st.warning(f"Public sources unavailable: {load_error}. Upload a compatible CSV to continue.")
 nav = st.sidebar.radio("WORKSPACES", [
- "Executive Overview","Country Intelligence","Surveillance & Trends","Spatial Intelligence",
+ "Executive Overview","Country Intelligence","Country Benchmarking","Surveillance & Trends","Spatial Intelligence",
  "Prevention & Health Systems","MAP Subnational Intelligence","MAP 5 km Raster Explorer","Forecasting & Risk Analysis","AI Malaria Analyst",
  "Reports & Downloads","Data Quality & Sources"])
 view = filter_observations(raw,countries=selected_iso or None,start_year=year_range[0],end_year=year_range[1]) if not raw.empty else raw
@@ -162,6 +163,68 @@ elif nav == "Country Intelligence":
         code = st.selectbox("Historical indicator",codes,format_func=label,key="profile_code")
         line_chart(prof[prof.indicator_code==code],f"{country_names.get(iso,iso)} · {label(code)}",label(code))
         st.dataframe(prof[["year","indicator_code","value","source","source_url"]],use_container_width=True,hide_index=True)
+
+elif nav == "Country Benchmarking":
+    st.subheader("Comparable-year country benchmarking")
+    st.caption("Compare countries using the same indicator and exact reference year. This avoids misleading comparisons between countries whose latest observations come from different years.")
+    if not codes:
+        st.info("Load data or upload a compatible dataset to begin benchmarking.")
+    else:
+        benchmark_code = st.selectbox("Benchmark indicator", codes, format_func=label, key="benchmark_indicator")
+        coverage = benchmark_coverage(raw, benchmark_code)
+        if coverage.empty:
+            st.info("No non-missing country observations are available for this indicator.")
+        else:
+            coverage["year"] = coverage["year"].astype(int)
+            st.markdown("#### Choose a comparable reference year")
+            st.dataframe(
+                coverage.rename(columns={"year":"Reference year","countries":"Countries with data","observations":"Source observations","sources":"Distinct sources"}),
+                use_container_width=True, hide_index=True,
+            )
+            benchmark_years = coverage["year"].tolist()
+            preferred_year = int(coverage.sort_values(["countries","year"], ascending=[False,False]).iloc[0]["year"])
+            benchmark_year = st.selectbox(
+                "Reference year (exact match)", benchmark_years,
+                index=benchmark_years.index(preferred_year),
+                key="benchmark_year",
+                help="The default is the year with the greatest country coverage; all included countries must have an observation in this exact year.",
+            )
+            benchmark_countries = st.multiselect(
+                "Optional country filter", sorted(raw["iso3"].dropna().astype(str).unique()),
+                default=[], format_func=lambda x: f"{country_names.get(x,x)} ({x})",
+                key="benchmark_countries",
+            )
+            try:
+                result = country_benchmark(raw, benchmark_code, benchmark_year, benchmark_countries or None)
+                first, second, third = st.columns(3)
+                first.metric("Countries compared", f"{len(result):,}")
+                second.metric("Reference year", str(benchmark_year))
+                third.metric("Indicator", label(benchmark_code))
+                st.markdown("#### Country comparison")
+                st.dataframe(
+                    result[["numerical_order","country","iso3","value","percentile","observation_count","source_count","sources"]].rename(columns={
+                        "numerical_order":"Value order (high to low)","country":"Country","iso3":"ISO3","value":"Value",
+                        "percentile":"Percentile","observation_count":"Source rows","source_count":"Distinct sources","sources":"Sources",
+                    }),
+                    use_container_width=True, hide_index=True,
+                )
+                st.download_button(
+                    "Download benchmark results · CSV",
+                    result.to_csv(index=False).encode("utf-8"),
+                    f"{benchmark_code.lower().replace('.','_')}_{benchmark_year}_country_benchmark.csv",
+                    "text/csv", use_container_width=True, key="download_country_benchmark",
+                )
+                fig = px.bar(
+                    result.head(20).sort_values("value", ascending=True),
+                    x="value", y="country", orientation="h",
+                    title=f"Highest numerical values · {label(benchmark_code)} · {benchmark_year}",
+                    labels={"value":"Indicator value","country":"Country"},
+                )
+                fig.update_layout(margin=dict(l=0,r=0,t=55,b=0), yaxis_title=None)
+                st.plotly_chart(fig, use_container_width=True)
+                st.caption("Value order is strictly numerical, high to low. It is not a judgement of better/worse performance: interpretation depends on the indicator definition, units and direction. Multiple source rows within a country-year are summarised by their median.")
+            except ValueError as exc:
+                st.warning(str(exc))
 
 elif nav == "Surveillance & Trends":
     st.subheader("Surveillance and epidemiological trends")
