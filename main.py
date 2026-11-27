@@ -7,7 +7,7 @@ import plotly.express as px
 import streamlit as st
 from malaria_intel.analytics import answer_data_question, filter_observations, forecast_linear, latest_country_values, validate_observations, year_over_year
 from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS
-from malaria_intel.data_sources import DataSourceError, fetch_african_countries, fetch_indicator_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, fetch_owid_bundle
+from malaria_intel.data_sources import DataSourceError, fetch_african_countries, fetch_indicator_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, fetch_owid_bundle, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series
 
 st.set_page_config(page_title=APP_NAME, page_icon="🦟", layout="wide", initial_sidebar_state="expanded")
 THEMES = {
@@ -25,6 +25,15 @@ def load_data(start, end):
 @st.cache_data(ttl=86400, show_spinner=False)
 def who_catalogue():
     return discover_who_malaria_indicators()
+@st.cache_data(ttl=86400, show_spinner=False)
+def map_releases():
+    return fetch_map_releases()
+@st.cache_data(ttl=86400, show_spinner=False)
+def map_admin_units(iso3, admin_version):
+    return fetch_map_admin1(iso3, admin_version)
+@st.cache_data(ttl=86400, show_spinner=False)
+def map_series(metric, version, level, iso3, admin_id, stat):
+    return fetch_map_series(metric, version, level, iso3=iso3, admin_unit_id=admin_id, stat=stat)
 def label(code):
     x = next((i for i in INDICATORS if i.code == code), None)
     return f"{x.name} · {x.unit}" if x else EXTERNAL_INDICATOR_LABELS.get(code, code)
@@ -48,7 +57,7 @@ with st.sidebar:
     theme_name = st.selectbox("Appearance", list(THEMES))
     bg,panel,accent,fg,muted = THEMES[theme_name]
     if st.button("↻ Refresh public data", use_container_width=True):
-        load_data.clear(); who_catalogue.clear(); st.rerun()
+        load_data.clear(); who_catalogue.clear(); map_releases.clear(); map_admin_units.clear(); map_series.clear(); st.rerun()
     st.caption("Public sources cached for 24 hours.")
 st.markdown(f"""<style>
 .stApp{{background:{bg};color:{fg}}}[data-testid="stSidebar"]{{background:{panel}}}
@@ -97,7 +106,7 @@ else:
 if load_error: st.warning(f"Public sources unavailable: {load_error}. Upload a compatible CSV to continue.")
 nav = st.sidebar.radio("WORKSPACES", [
  "Executive Overview","Country Intelligence","Surveillance & Trends","Spatial Intelligence",
- "Prevention & Health Systems","Forecasting & Risk Analysis","AI Malaria Analyst",
+ "Prevention & Health Systems","MAP Subnational Intelligence","Forecasting & Risk Analysis","AI Malaria Analyst",
  "Reports & Downloads","Data Quality & Sources"])
 view = filter_observations(raw,countries=selected_iso or None,start_year=year_range[0],end_year=year_range[1]) if not raw.empty else raw
 codes = sorted(raw["indicator_code"].dropna().unique()) if not raw.empty else []
@@ -178,6 +187,96 @@ elif nav == "Prevention & Health Systems":
         if not available: st.caption("No observations currently available. This does not mean zero coverage.")
         for code in available: line_chart(filter_observations(view,indicator=code),label(code),label(code))
     st.info("These are contextual programme measures, not direct measures of current transmission, diagnosis quality or treatment effectiveness.")
+
+
+elif nav == "MAP Subnational Intelligence":
+    st.subheader("Malaria Atlas Project · national and subnational estimates")
+    st.caption("Published modelled estimates from an explicitly selected MAP release. These are not individual case reports or real-time surveillance.")
+    st.markdown("#### 1. Select release and geography")
+    if not countries:
+        st.error("African country metadata is unavailable. Retry after restoring the World Bank country connector.")
+    else:
+        try:
+            releases = map_releases()
+            if not releases:
+                st.warning("MAP release metadata is currently unavailable.")
+            else:
+                release_by_label = {
+                    f"{r['version']} · through {r['data_end_year']}{' · provisional' if r['provisional'] else ''}": r
+                    for r in releases
+                }
+                release_label = st.selectbox("MAP data release", list(release_by_label))
+                release = release_by_label[release_label]
+                country_iso = st.selectbox("Country", sorted(country_names), format_func=lambda x: f"{country_names.get(x,x)} ({x})", key="map_country")
+                geography = st.radio("Geographic level", ["National","Subnational (admin-1)"], horizontal=True)
+                level = "admin0" if geography == "National" else "admin1"
+                refs = release.get("geo_server_refs", {})
+                available_metrics = []
+                for token, meta in MAP_METRICS.items():
+                    if refs.get(meta["availability_key"]):
+                        available_metrics.append(token)
+                if not available_metrics:
+                    st.warning("This release does not advertise any of the supported malaria or intervention metrics.")
+                else:
+                    metric = st.selectbox("Malaria indicator", available_metrics, format_func=lambda x: f"{MAP_METRICS[x]['name']} · {MAP_METRICS[x]['unit']}")
+                    admin_choices = []
+                    if level == "admin1":
+                        if not release.get("admin_version"):
+                            st.error("This MAP release does not provide an administrative boundary version.")
+                        else:
+                            admin_choices = map_admin_units(country_iso, release["admin_version"])
+                            if not admin_choices:
+                                st.warning("No admin-1 units were returned for this country and boundary release.")
+                    if level == "admin0" or admin_choices:
+                        if st.button("Load MAP estimates", type="primary"):
+                            try:
+                                with st.spinner("Retrieving MAP estimates and uncertainty bounds…"):
+                                    means = map_series(metric, release["version"], level, country_iso, None, "mean")
+                                    result = pd.DataFrame(means)
+                                    if level == "admin1":
+                                        names = {u["id"]:u["name"] for u in admin_choices}
+                                        result["country"] = result["admin1_id"].map(names).fillna(result["country"])
+                                        result = result[result["admin1_id"].isin(names)]
+                                    if metric not in {"Antimalarial_EFT-rate","IRS_coverage-rate"}:
+                                        lower = pd.DataFrame(map_series(metric, release["version"], level, country_iso, None, "lci"))
+                                        upper = pd.DataFrame(map_series(metric, release["version"], level, country_iso, None, "uci"))
+                                        keys = ["year", "admin1_id"] if level == "admin1" else ["year", "iso3"]
+                                        if not lower.empty and not upper.empty:
+                                            result = result.merge(lower[keys+["value"]].rename(columns={"value":"lower_bound"}),on=keys,how="left")
+                                            result = result.merge(upper[keys+["value"]].rename(columns={"value":"upper_bound"}),on=keys,how="left")
+                                    result["country"] = result["country"].replace("", country_names.get(country_iso,country_iso))
+                                    st.session_state.map_result = result
+                                    st.session_state.map_context = {
+                                        "metric":metric,"version":release["version"],"level":level,
+                                        "country":country_names.get(country_iso,country_iso),
+                                        "provisional":release["provisional"],
+                                    }
+                            except Exception as exc:
+                                st.error(f"MAP retrieval failed: {exc}")
+                result = st.session_state.get("map_result")
+                context = st.session_state.get("map_context")
+                if result is not None and context is not None:
+                    if context["provisional"]:
+                        st.warning("The selected MAP release is marked provisional.")
+                    st.markdown("#### 2. Explore the estimates")
+                    st.caption(f"{context['country']} · release {context['version']} · {MAP_METRICS[context['metric']]['name']}")
+                    plot = result.copy()
+                    fig = px.line(plot, x="year", y="value", color="country" if context["level"]=="admin1" else None,
+                                  markers=True, title=MAP_METRICS[context["metric"]]["name"],
+                                  labels={"year":"Year","value":MAP_METRICS[context["metric"]]["unit"],"country":"Admin-1 unit"})
+                    if {"lower_bound","upper_bound"}.issubset(plot.columns) and context["level"]=="admin0":
+                        fig.add_scatter(x=plot.year,y=plot.upper_bound,mode="lines",line=dict(width=0),showlegend=False,hoverinfo="skip")
+                        fig.add_scatter(x=plot.year,y=plot.lower_bound,mode="lines",fill="tonexty",line=dict(width=0),name="Published uncertainty range",hoverinfo="skip")
+                    fig.update_layout(hovermode="x unified",margin=dict(l=8,r=8,t=55,b=8))
+                    st.plotly_chart(fig,use_container_width=True)
+                    if "possible_missing_zero" in result and result.possible_missing_zero.any():
+                        st.warning("MAP documents that some zero values can indicate unavailable estimates. Review release availability and neighbouring years before interpreting zero as no burden.")
+                    st.dataframe(result,use_container_width=True,hide_index=True)
+                    st.download_button("Download MAP estimates · CSV",result.to_csv(index=False).encode("utf-8"),"map_malaria_estimates.csv","text/csv")
+                    st.caption("MAP estimates are modelled. Lower/upper bounds are shown only where the source provides genuine uncertainty bounds; treatment effectiveness and IRS coverage are point estimates.")
+        except Exception as exc:
+            st.error(f"MAP services could not be loaded: {exc}")
+    st.markdown("**Source and attribution:** Malaria Atlas Project, selected dataset and release. Reuse MAP maps under CC BY 3.0 with the dataset-specific citation and attribution. Third-party source data retains its own licence and citation.")
 
 elif nav == "Forecasting & Risk Analysis":
     st.subheader("Exploratory trend modelling")
