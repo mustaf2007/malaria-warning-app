@@ -12,8 +12,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import (
-    Flowable, Image, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate,
-    Spacer, Table, TableStyle,
+    Flowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
 )
 
 
@@ -143,7 +142,7 @@ def build_country_report_pdf(
             f"This report summarises {len(usable):,} non-missing observations across "
             f"{len(indicator_codes)} selected indicators and {data['year'].nunique()} reference years. "
             "The report reflects only the data supplied to the application for this country and period; "
-            "it does not estimate missing values.", styles["BodyAMI"
+            "it does not estimate missing values.", styles["BodyAMI"]
         ),
     ]
     summary_rows = [["Indicator", "Latest value", "Year", "Earliest value", "Year", "Source(s)"]]
