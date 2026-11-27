@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.express as px
 import json
 import streamlit as st
-from malaria_intel.analytics import answer_data_question, filter_observations, forecast_linear, latest_country_values, validate_observations, year_over_year
+from malaria_intel.analytics import answer_data_question, build_data_quality_tables, filter_observations, forecast_linear, latest_country_values, validate_observations, year_over_year
 from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS, year_range_bounds
 from malaria_intel.data_sources import DataSourceError, fetch_dashboard_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series, fetch_map_wms_preview, resolve_map_wms_layer, map_wms_time_for_year
 from malaria_intel.spatial import fetch_country_boundary, fetch_admin1_boundaries, join_admin1_estimates_to_geojson
@@ -725,11 +725,51 @@ elif nav == "Reports & Downloads":
         st.markdown("#### Export summary"); st.dataframe(summary,use_container_width=True,hide_index=True)
 
 elif nav == "Data Quality & Sources":
-    st.subheader("Data quality, provenance and connector health")
+    st.subheader("Data quality, coverage and source freshness")
+    st.caption("Quality indicators describe the records currently loaded. Missingness is calculated within received rows; absent country-year rows are not assumed to be zero or confirmed missing.")
+    if raw.empty:
+        st.info("No observations are available for quality assessment.")
+    else:
+        quality_tables = build_data_quality_tables(raw)
+        overall = quality_tables["overall"].iloc[0]
+        qa,qb,qc,qd,qe = st.columns(5)
+        qa.metric("Rows received", f"{int(overall['rows_received']):,}")
+        qb.metric("Non-missing values", f"{int(overall['non_missing_values']):,}")
+        qc.metric("Missing values", f"{int(overall['missing_values']):,}", f"{overall['missing_pct']}% of received rows")
+        qd.metric("Zero values", f"{int(overall['zero_values']):,}", help="Zero is flagged for review, not automatically treated as an error.")
+        qe.metric("Latest observation", str(overall["latest_observation_year"]))
+        st.markdown("#### Indicator-level coverage and freshness")
+        indicator_table = quality_tables["indicators"].rename(columns={
+            "indicator_code":"Indicator", "rows_received":"Rows received",
+            "non_missing_values":"Non-missing", "missing_values":"Missing",
+            "missing_pct":"Missing (%)", "zero_values":"Zero values",
+            "countries":"Countries with values", "first_observation_year":"First year",
+            "latest_observation_year":"Latest year", "years_behind_current":"Years behind current calendar year",
+        })
+        st.dataframe(indicator_table, use_container_width=True, hide_index=True)
+        st.download_button("Download indicator quality · CSV", quality_tables["indicators"].to_csv(index=False).encode("utf-8"), "malaria_indicator_quality.csv", "text/csv", key="download_indicator_quality")
+        st.markdown("#### Country × indicator coverage matrix")
+        st.caption("Cell values are counts of non-missing observations. A zero means no non-missing row was found for that country-indicator pair in the loaded data; it does not mean zero malaria burden.")
+        if not quality_tables["coverage"].empty:
+            st.dataframe(quality_tables["coverage"], use_container_width=True, hide_index=True)
+            st.download_button("Download coverage matrix · CSV", quality_tables["coverage"].to_csv(index=False).encode("utf-8"), "malaria_country_indicator_coverage.csv", "text/csv", key="download_coverage_matrix")
+        else:
+            st.info("No non-missing country-indicator observations are available for the coverage matrix.")
+        st.markdown("#### Source-level freshness and missingness")
+        source_table = quality_tables["sources"].rename(columns={
+            "source":"Source", "rows_received":"Rows received",
+            "non_missing_values":"Non-missing", "missing_values":"Missing",
+            "missing_pct":"Missing (%)", "zero_values":"Zero values",
+            "countries":"Countries with values", "first_observation_year":"First year",
+            "latest_observation_year":"Latest year", "years_behind_current":"Years behind current calendar year",
+        })
+        st.dataframe(source_table, use_container_width=True, hide_index=True)
+        st.download_button("Download source quality · CSV", quality_tables["sources"].to_csv(index=False).encode("utf-8"), "malaria_source_quality.csv", "text/csv", key="download_source_quality")
+    st.markdown("#### Validation and cleaning summary")
     a,b,c,d=st.columns(4)
-    a.metric("Rows",f"{quality['rows']:,}"); b.metric("Missing values",f"{quality['missing_values']:,}")
+    a.metric("Rows after validation",f"{quality['rows']:,}"); b.metric("Missing values",f"{quality['missing_values']:,}")
     c.metric("Countries",f"{quality['countries']:,}"); d.metric("Duplicate keys removed",f"{quality['duplicate_keys_removed']:,}")
-    st.markdown("#### World Bank connector status")
+    st.markdown("#### Connector status")
     if statuses: st.dataframe(pd.DataFrame(statuses),use_container_width=True,hide_index=True)
     else: st.info("No connector status returned.")
     st.markdown("#### Malaria Atlas Project release metadata")
