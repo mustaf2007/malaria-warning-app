@@ -23,16 +23,33 @@ def validate_observations(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, 
     valid_rows = clean[valid_year & valid_iso3 & valid_indicator & valid_source].copy()
     invalid_rows_removed = int(len(clean) - len(valid_rows))
     valid_rows["year"] = valid_rows["year"].astype(int)
-    deduplicated = valid_rows.drop_duplicates(
-        subset=["iso3", "year", "indicator_code", "source"], keep="last"
-    )
-    duplicate_keys_removed = int(len(valid_rows) - len(deduplicated))
+    key_columns = ["iso3", "year", "indicator_code", "source"]
+    # A key with multiple distinct reported values is ambiguous: exclude the
+    # entire key rather than selecting an arbitrary row based on input order.
+    non_missing_values = valid_rows.groupby(key_columns, dropna=False)["value"].nunique(dropna=True)
+    conflicting_keys = non_missing_values[non_missing_values > 1].index
+    if len(conflicting_keys):
+        conflict_index = pd.MultiIndex.from_frame(valid_rows[key_columns])
+        conflict_mask = conflict_index.isin(conflicting_keys)
+        conflicting_rows_excluded = int(conflict_mask.sum())
+        unambiguous = valid_rows.loc[~conflict_mask].copy()
+    else:
+        conflicting_rows_excluded = 0
+        unambiguous = valid_rows
+    conflicting_keys_excluded = int(len(conflicting_keys))
+    # If duplicate rows contain one observed value and one missing value,
+    # retain the observed record; otherwise exact duplicate keys are equivalent.
+    unambiguous = unambiguous.sort_values("value", na_position="first")
+    deduplicated = unambiguous.drop_duplicates(subset=key_columns, keep="last")
+    duplicate_keys_removed = int(len(unambiguous) - len(deduplicated))
     clean = deduplicated.sort_values(["indicator_code", "country", "year"]).reset_index(drop=True)
     quality = {
         "rows": int(len(clean)),
         "missing_values": int(clean["value"].isna().sum()),
         "invalid_rows_removed": invalid_rows_removed,
         "duplicate_keys_removed": duplicate_keys_removed,
+        "conflicting_keys_excluded": conflicting_keys_excluded,
+        "conflicting_rows_excluded": conflicting_rows_excluded,
         "countries": int(clean["iso3"].nunique()),
         "indicators": int(clean["indicator_code"].nunique()),
         "years": int(clean["year"].nunique()),
