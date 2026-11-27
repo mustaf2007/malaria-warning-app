@@ -38,6 +38,20 @@ def test_year_over_year(observations):
     assert result.iloc[-1]["absolute_change"] == -5
     assert result.iloc[-1]["percent_change"] == pytest.approx(-12.5)
 
+def test_year_over_year_does_not_treat_multi_year_gap_as_one_year(observations):
+    sparse = observations[~((observations.iso3 == "SOM") & (observations.year == 2021))]
+    result = year_over_year(sparse, "SH.MLR.INCD.P3", "SOM")
+    row_2022 = result[result.year == 2022].iloc[0]
+    assert row_2022["year_gap"] == 2
+    assert pd.isna(row_2022["absolute_change"])
+    assert pd.isna(row_2022["percent_change"])
+    assert row_2022["change_status"] == "Gap or first observation"
+    row_2023 = result[result.year == 2023].iloc[0]
+    assert row_2023["year_gap"] == 1
+    assert row_2023["absolute_change"] == -5
+    assert row_2023["change_status"] == "Consecutive calendar year"
+
+
 def test_forecast_requires_four_observations(observations):
     with pytest.raises(ValueError, match="four non-missing"):
         forecast_linear(observations.iloc[:2], "SH.MLR.INCD.P3", "SOM")
