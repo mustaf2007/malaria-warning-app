@@ -46,18 +46,35 @@ def _get_odata_rows(url: str, params: dict[str, Any] | None = None) -> list[dict
     return output
 
 
+# ISO3 codes for the 54 sovereign African countries. Use geography rather than
+# exact World Bank region labels, which can change or classify North Africa
+# under a separate regional grouping.
+AFRICAN_COUNTRY_ISO3 = frozenset({
+    "AGO", "BEN", "BWA", "BFA", "BDI", "CPV", "CMR", "CAF", "TCD",
+    "COM", "COD", "COG", "CIV", "DJI", "EGY", "GNQ", "ERI", "SWZ",
+    "ETH", "GAB", "GMB", "GHA", "GIN", "GNB", "KEN", "LSO", "LBR",
+    "LBY", "MDG", "MWI", "MLI", "MRT", "MUS", "MAR", "MOZ", "NAM",
+    "NER", "NGA", "RWA", "STP", "SEN", "SYC", "SLE", "SOM", "ZAF",
+    "SSD", "SDN", "TZA", "TGO", "TUN", "UGA", "ZMB", "ZWE", "DZA",
+})
+
+
 def fetch_african_countries() -> list[dict[str, str]]:
-    """Return World Bank country metadata for African economies only."""
+    """Return World Bank metadata for the 54 sovereign African countries."""
     payload = _get_json(f"{WB_BASE}/country", {"format": "json", "per_page": 400})
     if not isinstance(payload, list) or len(payload) < 2 or not isinstance(payload[1], list):
         raise DataSourceError("World Bank country metadata returned an unexpected format.")
     countries = []
     for row in payload[1]:
-        region = (row.get("region") or {}).get("value", "")
-        iso3 = row.get("id")
+        iso3 = str(row.get("id") or "").upper()
         iso2 = row.get("iso2Code")
-        if (region == "Sub-Saharan Africa" or iso3 in {"DZA", "EGY", "LBY", "MAR", "TUN", "SDN", "MRT"}) and iso3 and iso2 and iso2 != "ZH":
-            countries.append({"iso3": iso3, "iso2": iso2, "name": row.get("name", iso3), "region": region})
+        if iso3 in AFRICAN_COUNTRY_ISO3 and iso2 and iso2 != "ZH":
+            countries.append({
+                "iso3": iso3,
+                "iso2": iso2,
+                "name": row.get("name", iso3),
+                "region": (row.get("region") or {}).get("value", ""),
+            })
     return sorted(countries, key=lambda item: item["name"])
 
 
