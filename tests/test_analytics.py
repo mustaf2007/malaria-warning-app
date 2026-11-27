@@ -198,3 +198,31 @@ def test_dataset_summary_handles_no_numeric_values(observations):
     empty_values["value"] = None
     answer = summarize_loaded_dataset(empty_values)
     assert "No numeric observations" in answer
+
+
+
+def test_prepare_who_observations_maps_country_names_and_filters_non_african_rows():
+    from malaria_intel.analytics import prepare_who_observations
+
+    rows = [
+        {"iso3": "som", "country": "SOM", "year": "2024", "value": "12.5", "indicator_code": "WHO_MAL"},
+        {"iso3": "KEN", "country": "KEN", "year": 2023, "value": None, "indicator_code": "WHO_MAL"},
+        {"iso3": "USA", "country": "USA", "year": 2024, "value": 5, "indicator_code": "WHO_MAL"},
+        {"iso3": "SOM", "country": "SOM", "year": 2024.5, "value": 9, "indicator_code": "WHO_MAL"},
+    ]
+
+    result = prepare_who_observations(rows, {"SOM": "Somalia", "KEN": "Kenya"})
+
+    assert len(result) == 2
+    assert result[0]["iso3"] == "SOM"
+    assert result[0]["country"] == "Somalia"
+    assert result[0]["year"] == 2024
+    assert result[0]["value"] == 12.5
+    assert result[1]["country"] == "Kenya"
+    assert result[1]["value"] is None
+
+
+def test_prepare_who_observations_handles_empty_input():
+    from malaria_intel.analytics import prepare_who_observations
+
+    assert prepare_who_observations([], {"SOM": "Somalia"}) == []
