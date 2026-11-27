@@ -1,9 +1,11 @@
 """Open-data connectors. No credentials or paid API keys are required."""
 from __future__ import annotations
 import time
+from io import StringIO
 from typing import Any
+import pandas as pd
 import requests
-from .config import INDICATORS, REQUEST_TIMEOUT, USER_AGENT
+from .config import INDICATORS, OWID_DATASETS, REQUEST_TIMEOUT, USER_AGENT
 
 WB_BASE = "https://api.worldbank.org/v2"
 WHO_GHO_BASE = "https://ghoapi.azureedge.net/api"
@@ -144,3 +146,53 @@ def fetch_indicator_bundle(start_year: int = 2000, end_year: int = 2024, codes: 
         except Exception as exc:
             statuses.append({"code": code, "status": "unavailable", "records": "0", "non_missing": "0", "source": f"World Bank: {exc}"})
     return all_rows, statuses
+
+
+def fetch_owid_grapher(slug: str, start_year: int = 2000, end_year: int = 2024) -> list[dict[str, Any]]:
+    """Fetch a documented Our World in Data Grapher CSV and normalize country rows."""
+    if slug not in OWID_DATASETS:
+        raise ValueError("The requested Our World in Data series is not in the approved catalogue.")
+    url = f"https://ourworldindata.org/grapher/{slug}.csv?v=1&csvType=full&useColumnShortNames=false"
+    try:
+        response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        frame = pd.read_csv(StringIO(response.text))
+    except Exception as exc:
+        raise DataSourceError(f"Our World in Data series {slug} could not be retrieved: {exc}") from exc
+    required = {"Entity", "Code", "Year"}
+    if not required.issubset(frame.columns):
+        raise DataSourceError(f"Unexpected Our World in Data CSV schema for {slug}.")
+    value_columns = [column for column in frame.columns if column not in required]
+    if len(value_columns) != 1:
+        raise DataSourceError(f"Expected one value column in Our World in Data series {slug}.")
+    value_column = value_columns[0]
+    frame["Year"] = pd.to_numeric(frame["Year"], errors="coerce")
+    frame[value_column] = pd.to_numeric(frame[value_column], errors="coerce")
+    frame = frame[(frame["Year"] >= start_year) & (frame["Year"] <= end_year)]
+    output = []
+    for item in frame.to_dict(orient="records"):
+        iso3 = str(item.get("Code") or "").strip()
+        if len(iso3) != 3 or iso3.lower() == "nan":
+            continue
+        output.append({
+            "iso3": iso3.upper(), "country": str(item.get("Entity") or iso3),
+            "year": int(item["Year"]), "indicator_code": f"OWID:{slug}",
+            "value": float(item[value_column]) if pd.notna(item[value_column]) else None,
+            "source": "Our World in Data (original source noted in dataset metadata)",
+            "source_url": url, "last_updated": None,
+        })
+    return output
+
+
+def fetch_owid_bundle(start_year: int = 2000, end_year: int = 2024) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Fetch each approved OWID malaria series independently and report connector status."""
+    rows: list[dict[str, Any]] = []
+    statuses: list[dict[str, str]] = []
+    for slug in OWID_DATASETS:
+        try:
+            current = fetch_owid_grapher(slug, start_year, end_year)
+            rows.extend(current)
+            statuses.append({"code": f"OWID:{slug}", "status": "loaded" if current else "no observations", "records": str(len(current)), "non_missing": str(sum(r["value"] is not None for r in current)), "source": "Our World in Data"})
+        except Exception as exc:
+            statuses.append({"code": f"OWID:{slug}", "status": "unavailable", "records": "0", "non_missing": "0", "source": f"Our World in Data: {exc}"})
+    return rows, statuses
