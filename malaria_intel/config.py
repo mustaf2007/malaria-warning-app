@@ -6,6 +6,12 @@ APP_NAME = "Africa Malaria Intelligence"
 DEFAULT_START_YEAR = 1960
 # Follow the current calendar year; each source returns only years it actually publishes.
 DEFAULT_END_YEAR = datetime.now(timezone.utc).year
+
+
+def year_range_bounds(observed_years=None) -> tuple[int, int]:
+    """Return slider bounds covering the default analysis window and observed years."""
+    values = [int(year) for year in (observed_years or [])]
+    return min([DEFAULT_START_YEAR, *values]), max([DEFAULT_END_YEAR, *values])
 REQUEST_TIMEOUT = 25
 USER_AGENT = "AfricaMalariaIntelligence/1.0 (open-data research dashboard)"
 
