@@ -168,3 +168,33 @@ def test_validate_prefers_observed_value_over_missing_duplicate(observations):
     assert row["value"] == 35.0
     assert quality["duplicate_keys_removed"] == 1
     assert quality["conflicting_keys_excluded"] == 0
+
+
+def test_model_free_assistant_summarizes_all_loaded_indicators(observations):
+    extra = pd.DataFrame([
+        {"iso3":"KEN","country":"Kenya","year":2022,"indicator_code":"SH.MLR.DEATHS","value":12.0,"source":"WHO"},
+        {"iso3":"SOM","country":"Somalia","year":2023,"indicator_code":"SH.MLR.DEATHS","value":None,"source":"WHO"},
+    ])
+    combined = pd.concat([observations, extra], ignore_index=True)
+    answer = answer_data_question(combined, "summarize over all data", {"SOM":"Somalia","KEN":"Kenya"})
+    assert "Dataset-wide summary" in answer
+    assert "2 indicators" in answer
+    assert "SH.MLR.INCD.P3" in answer
+    assert "SH.MLR.DEATHS" in answer
+    assert "missing values" in answer
+    assert "not pooled" in answer
+
+
+def test_model_free_assistant_summary_does_not_pool_different_indicators(observations):
+    answer = answer_data_question(observations, "Give me an overall dataset overview")
+    assert "Indicator-by-indicator results" in answer
+    assert "not pooled" in answer
+    assert "population-weighted" in answer
+
+
+def test_dataset_summary_handles_no_numeric_values(observations):
+    from malaria_intel.analytics import summarize_loaded_dataset
+    empty_values = observations.copy()
+    empty_values["value"] = None
+    answer = summarize_loaded_dataset(empty_values)
+    assert "No numeric observations" in answer
