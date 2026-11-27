@@ -32,8 +32,11 @@ def test_validate_drops_fractional_years_and_invalid_country_codes(observations)
     ])
     clean, quality = validate_observations(pd.concat([observations, extra], ignore_index=True))
     assert len(clean) == len(observations) + 1
-    assert clean.iloc[-1]["iso3"] == "SOM"
-    assert clean.iloc[-1]["year"] == 2022
+    accepted = clean[(clean["iso3"] == "SOM") & (clean["indicator_code"] == "INC")]
+    assert len(accepted) == 1
+    assert accepted.iloc[0]["year"] == 2022
+    assert quality["invalid_rows_removed"] == 3
+    assert quality["duplicate_keys_removed"] == 0
 
 
 def test_validate_keeps_missing_values_but_rejects_invalid_keys(observations):
@@ -44,6 +47,8 @@ def test_validate_keeps_missing_values_but_rejects_invalid_keys(observations):
     clean, quality = validate_observations(pd.concat([observations, extra], ignore_index=True))
     assert len(clean) == len(observations) + 1
     assert quality["missing_values"] == 1
+    assert quality["invalid_rows_removed"] == 0
+    assert quality["duplicate_keys_removed"] == 0
 
 
 def test_validate_requires_schema():
