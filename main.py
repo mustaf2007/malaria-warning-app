@@ -335,9 +335,10 @@ elif nav == "MAP 5 km Raster Explorer":
                     min_year = layer_info.get("min_year")
                     max_year = layer_info.get("max_year")
                     if min_year is not None and max_year is not None:
-                        year_value = st.slider(
-                            "Reference year", min_value=int(min_year), max_value=int(max_year),
-                            value=int(max_year), key="map_raster_year",
+                        year_options = layer_info.get("available_years") or list(range(int(min_year), int(max_year) + 1))
+                        year_value = st.selectbox(
+                            "Reference year", year_options, index=len(year_options) - 1,
+                            key="map_raster_year",
                         )
                     else:
                         year_value = None
