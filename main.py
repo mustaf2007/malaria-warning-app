@@ -402,6 +402,8 @@ elif nav == "MAP 5 km Raster Explorer":
                         )
                         st.caption("The interactive map uses MAP's WMS raster service and OpenStreetMap base tiles. Display resolution depends on map zoom and screen size; the source raster is the MAP high-resolution product.")
                         st.markdown("**Attribution:** Malaria Atlas Project, selected raster layer and release. MAP maps are available under CC BY 3.0; retain dataset-specific citation details and identify adaptations. OpenStreetMap contributors provide the basemap.")
+    except Exception as exc:
+        st.error(f"MAP raster catalogue unavailable: {exc}")
 
 elif nav == "Forecasting & Risk Analysis":
     st.subheader("Exploratory trend modelling")
