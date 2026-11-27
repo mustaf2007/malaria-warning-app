@@ -52,8 +52,11 @@ def latest_country_values(frame: pd.DataFrame, indicator: str) -> pd.DataFrame:
 
 def year_over_year(frame: pd.DataFrame, indicator: str, country: str) -> pd.DataFrame:
     data = frame[(frame["indicator_code"] == indicator) & (frame["iso3"] == country) & frame["value"].notna()].sort_values("year").copy()
-    data["absolute_change"] = data["value"].diff()
-    data["percent_change"] = data["value"].pct_change() * 100
+    data["year_gap"] = data["year"].diff()
+    consecutive = data["year_gap"].eq(1)
+    data["absolute_change"] = data["value"].diff().where(consecutive)
+    data["percent_change"] = (data["value"].pct_change() * 100).where(consecutive)
+    data["change_status"] = consecutive.map({True: "Consecutive calendar year", False: "Gap or first observation"})
     return data
 
 
