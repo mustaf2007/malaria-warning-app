@@ -474,3 +474,33 @@ def fetch_map_wms_preview(layer_ref: str, year: int | None, width: int = 1600, h
         message = response.text[:240] if "text" in content_type or "xml" in content_type else "non-PNG response"
         raise DataSourceError(f"MAP WMS did not return a PNG raster image: {message}")
     return response.content
+
+
+
+def fetch_dashboard_bundle(start_year: int = 2000, end_year: int = 2024) -> tuple[list[dict[str, str]], list[dict[str, Any]], list[dict[str, str]]]:
+    """Load dashboard sources independently so one outage cannot blank the whole app."""
+    countries: list[dict[str, str]] = []
+    rows: list[dict[str, Any]] = []
+    statuses: list[dict[str, str]] = []
+
+    try:
+        countries = fetch_african_countries()
+        statuses.append({"code": "COUNTRY_METADATA", "status": "loaded", "records": str(len(countries)), "non_missing": str(len(countries)), "source": "World Bank"})
+    except Exception as exc:
+        statuses.append({"code": "COUNTRY_METADATA", "status": "unavailable", "records": "0", "non_missing": "0", "source": f"World Bank country metadata: {exc}"})
+
+    try:
+        wb_rows, wb_status = fetch_indicator_bundle(start_year, end_year)
+        rows.extend(wb_rows)
+        statuses.extend(wb_status)
+    except Exception as exc:
+        statuses.append({"code": "WORLD_BANK_BUNDLE", "status": "unavailable", "records": "0", "non_missing": "0", "source": f"World Bank indicators: {exc}"})
+
+    try:
+        owid_rows, owid_status = fetch_owid_bundle(start_year, end_year)
+        rows.extend(owid_rows)
+        statuses.extend(owid_status)
+    except Exception as exc:
+        statuses.append({"code": "OWID_BUNDLE", "status": "unavailable", "records": "0", "non_missing": "0", "source": f"Our World in Data: {exc}"})
+
+    return countries, rows, statuses
