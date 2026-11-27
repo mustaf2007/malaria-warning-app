@@ -7,7 +7,7 @@ import plotly.express as px
 import json
 import streamlit as st
 from malaria_intel.analytics import answer_data_question, filter_observations, forecast_linear, latest_country_values, validate_observations, year_over_year
-from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS
+from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS, year_range_bounds
 from malaria_intel.data_sources import DataSourceError, fetch_dashboard_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series, fetch_map_wms_preview, resolve_map_wms_layer, map_wms_time_for_year
 from malaria_intel.spatial import fetch_country_boundary, fetch_admin1_boundaries, join_admin1_estimates_to_geojson
 from malaria_intel.reports import build_country_report_pdf, build_africa_report_pdf
@@ -102,8 +102,17 @@ with st.sidebar:
     iso_options = [c["iso3"] for c in countries] or sorted(raw.get("iso3",pd.Series(dtype=str)).dropna().unique())
     # Start with the complete African country set; users can narrow it in the multiselect.
     selected_iso = st.multiselect("Countries", iso_options, default=iso_options)
-    years = sorted(raw["year"].dropna().unique().tolist()) if not raw.empty else list(range(DEFAULT_START_YEAR,DEFAULT_END_YEAR+1))
-    year_range = st.slider("Reference period", int(min(years)), int(max(years)), (int(min(years)),int(max(years)))) if len(years)>1 else (DEFAULT_START_YEAR,DEFAULT_END_YEAR)
+    years = sorted(raw["year"].dropna().unique().tolist()) if not raw.empty else []
+    year_min, year_max = year_range_bounds(years)
+    # Keep the full requested analysis window selectable even when sources have gaps.
+    year_range = st.slider(
+        "Reference period",
+        int(year_min),
+        int(year_max),
+        (int(DEFAULT_START_YEAR), int(DEFAULT_END_YEAR)),
+        step=1,
+        help="The filter spans 1960 through the current year. Sources contribute only the years they actually publish.",
+    )
     upload = st.file_uploader("Upload supplementary CSV", type=["csv"], help="Required columns: iso3,country,year,indicator_code,value,source. Session-only.")
 if upload is not None:
     try:
