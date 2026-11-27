@@ -229,6 +229,7 @@ elif nav == "MAP Subnational Intelligence":
                 for token, meta in MAP_METRICS.items():
                     if refs.get(meta["availability_key"]):
                         available_metrics.append(token)
+                metric = None
                 if not available_metrics:
                     st.warning("This release does not advertise any of the supported malaria or intervention metrics.")
                 else:
@@ -287,6 +288,7 @@ elif nav == "MAP Subnational Intelligence":
                 context = st.session_state.get("map_context")
                 context_matches = (
                     context is not None
+                    and metric is not None
                     and context.get("version") == release["version"]
                     and context.get("iso3") == country_iso
                     and context.get("metric") == metric
