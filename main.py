@@ -8,7 +8,7 @@ import json
 import streamlit as st
 from malaria_intel.analytics import answer_data_question, build_data_quality_tables, filter_observations, forecast_linear, latest_country_values, prepare_who_observations, validate_observations, year_over_year
 from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS, year_range_bounds
-from malaria_intel.data_sources import DataSourceError, fetch_dashboard_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series, 
+from malaria_intel.data_sources import DataSourceError, fetch_dashboard_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series
 from malaria_intel.spatial import fetch_country_boundary, fetch_admin1_boundaries, join_admin1_estimates_to_geojson
 from malaria_intel.reports import build_country_report_pdf, build_africa_report_pdf
 from malaria_intel.benchmarking import country_benchmark, benchmark_coverage
