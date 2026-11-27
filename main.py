@@ -278,13 +278,21 @@ elif nav == "MAP Subnational Intelligence":
                                     st.session_state.map_context = {
                                         "metric":metric,"version":release["version"],"level":level,
                                         "country":country_names.get(country_iso,country_iso),
+                                        "iso3":country_iso,
                                         "provisional":release["provisional"],
                                     }
                             except Exception as exc:
                                 st.error(f"MAP retrieval failed: {exc}")
                 result = st.session_state.get("map_result")
                 context = st.session_state.get("map_context")
-                if result is not None and context is not None:
+                context_matches = (
+                    context is not None
+                    and context.get("version") == release["version"]
+                    and context.get("iso3") == country_iso
+                    and context.get("metric") == metric
+                    and context.get("level") == level
+                )
+                if result is not None and context_matches:
                     if context["provisional"]:
                         st.warning("The selected MAP release is marked provisional.")
                     st.markdown("#### 2. Explore the estimates")
