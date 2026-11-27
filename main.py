@@ -174,7 +174,15 @@ elif nav == "Country Intelligence":
         for code in codes:
             series = prof[prof.indicator_code==code]
             if not series.empty:
-                last=series.iloc[-1]; st.metric(label(code),f"{last.value:,.3g}",f"Reference year {int(last.year)}")
+                latest_year = int(series["year"].max())
+                latest_rows = series[series["year"] == latest_year].sort_values(["source", "value"])
+                if len(latest_rows) == 1:
+                    latest = latest_rows.iloc[0]
+                    st.metric(label(code), f"{latest.value:,.3g}", f"Reference year {latest_year} · {latest.source}")
+                else:
+                    st.markdown(f"**{label(code)} · latest reference year {latest_year}**")
+                    st.warning("Multiple source records are available for this indicator and year. Values are shown separately; no source is silently selected or averaged.")
+                    st.dataframe(latest_rows[["value", "source", "source_url"]].rename(columns={"value":"Value","source":"Source","source_url":"Source URL"}), use_container_width=True, hide_index=True)
         code = st.selectbox("Historical indicator",codes,format_func=label,key="profile_code")
         line_chart(prof[prof.indicator_code==code],f"{country_names.get(iso,iso)} · {label(code)}",label(code))
         st.dataframe(prof[["year","indicator_code","value","source","source_url"]],use_container_width=True,hide_index=True)
