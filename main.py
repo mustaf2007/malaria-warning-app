@@ -331,6 +331,17 @@ elif nav == "Data Quality & Sources":
     st.markdown("#### World Bank connector status")
     if statuses: st.dataframe(pd.DataFrame(statuses),use_container_width=True,hide_index=True)
     else: st.info("No connector status returned.")
+    st.markdown("#### Malaria Atlas Project release metadata")
+    try:
+        map_status = map_releases()
+        if map_status:
+            latest_map = map_status[0]
+            st.write(f"Latest advertised MAP release: **{latest_map['version']}** · data through **{latest_map['data_end_year']}** · provisional: **{latest_map['provisional']}** · admin boundary: **{latest_map['admin_version'] or 'not specified'}**")
+            st.dataframe(pd.DataFrame([{"release":r["version"],"data_end_year":r["data_end_year"],"provisional":r["provisional"],"admin_version":r["admin_version"]} for r in map_status]),use_container_width=True,hide_index=True)
+        else:
+            st.info("MAP did not return release metadata.")
+    except Exception as exc:
+        st.warning(f"MAP release metadata unavailable: {exc}")
     st.markdown("#### Open source catalogue")
     for name,url in SOURCE_LINKS.items(): st.markdown(f"- [{name}]({url})")
     st.markdown("#### WHO GHO malaria indicator discovery")
