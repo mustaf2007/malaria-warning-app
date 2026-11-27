@@ -25,4 +25,4 @@ jobs:
       - name: Compile Python modules
         run: python -m compileall -q main.py streamlit_app.py malaria_intel tests
       - name: Run unit tests
-        run: pytest -q
+        run: python -m pytest -q
