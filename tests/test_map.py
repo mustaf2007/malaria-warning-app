@@ -95,7 +95,7 @@ def test_resolve_map_wms_layer_rejects_unadvertised_layer(monkeypatch):
         data_sources.resolve_map_wms_layer("Malaria__202508_Global_Pf_Incidence_Rate")
 
 def test_map_wms_preview_checks_image_and_requests_selected_year(monkeypatch):
-    png=bytes([137,80,78,71,13,10,26,10]) + b"test-image"
+    png=bytes([137,80,78,71,13,10,26,10]) + bytes([0,0,0,13]) + b"IHDR" + (1600).to_bytes(4,"big") + (900).to_bytes(4,"big") + bytes([8,6,0,0,0]) + bytes([0,0,0,0])
     class Capabilities:
         content=b'<WMS_Capabilities><Capability><Layer><Name>Malaria:202508_Global_Pf_Incidence_Rate</Name><Dimension name="time" units="ISO8601">2000-01-01T00:00:00.000Z/2025-01-01T00:00:00.000Z/P1Y</Dimension></Layer></Capability></WMS_Capabilities>'
         headers={"Content-Type":"text/xml"}
@@ -194,3 +194,52 @@ def test_map_jsonstat_rejects_invalid_year_category():
     payload["dimension"]["Year"]["category"]["index"] = {"unknown": 0}
     with pytest.raises(data_sources.DataSourceError, match="invalid positions or years"):
         data_sources._jsonstat_rows(payload, "admin1", "Pf_incidence-count", "mean", "https://example.test")
+
+
+def test_map_wms_capabilities_rejects_unrelated_xml_document(monkeypatch):
+    class Response:
+        content=b"<html><body>temporary upstream error</body></html>"
+        def raise_for_status(self):
+            pass
+    monkeypatch.setattr(data_sources.requests,"get",lambda *args,**kwargs:Response())
+    with pytest.raises(data_sources.DataSourceError,match="unexpected XML document"):
+        data_sources.resolve_map_wms_layer("Malaria__layer_a")
+
+
+def test_map_wms_preview_rejects_truncated_png_header(monkeypatch):
+    class Capabilities:
+        content=b'<WMS_Capabilities><Capability><Layer><Name>Malaria:layer_a</Name><Dimension name="time">2000-01-01T00:00:00.000Z/2025-01-01T00:00:00.000Z/P1Y</Dimension></Layer></Capability></WMS_Capabilities>'
+        def raise_for_status(self):
+            pass
+    class ImageResponse:
+        content=b"\\x89PNG\\r\\n\\x1a\\n"
+        headers={"Content-Type":"image/png"}
+        def raise_for_status(self):
+            pass
+    calls=[]
+    def fake_get(*args,**kwargs):
+        calls.append(1)
+        return Capabilities() if len(calls)==1 else ImageResponse()
+    monkeypatch.setattr(data_sources.requests,"get",fake_get)
+    with pytest.raises(data_sources.DataSourceError,match="truncated or invalid PNG header"):
+        data_sources.fetch_map_wms_preview("Malaria__layer_a",2024)
+
+
+def test_map_wms_preview_rejects_wrong_png_dimensions(monkeypatch):
+    png=bytes([137,80,78,71,13,10,26,10]) + bytes([0,0,0,13]) + b"IHDR" + (800).to_bytes(4,"big") + (450).to_bytes(4,"big") + bytes([8,6,0,0,0]) + bytes([0,0,0,0])
+    class Capabilities:
+        content=b'<WMS_Capabilities><Capability><Layer><Name>Malaria:layer_a</Name><Dimension name="time">2000-01-01T00:00:00.000Z/2025-01-01T00:00:00.000Z/P1Y</Dimension></Layer></Capability></WMS_Capabilities>'
+        def raise_for_status(self):
+            pass
+    class ImageResponse:
+        content=png
+        headers={"Content-Type":"image/png"}
+        def raise_for_status(self):
+            pass
+    calls=[]
+    def fake_get(*args,**kwargs):
+        calls.append(1)
+        return Capabilities() if len(calls)==1 else ImageResponse()
+    monkeypatch.setattr(data_sources.requests,"get",fake_get)
+    with pytest.raises(data_sources.DataSourceError,match="dimensions do not match"):
+        data_sources.fetch_map_wms_preview("Malaria__layer_a",2024)
