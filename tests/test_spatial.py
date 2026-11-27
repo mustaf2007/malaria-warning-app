@@ -159,3 +159,37 @@ def test_join_admin1_estimates_does_not_guess_ambiguous_names():
     assert result["matched_units"] == 0
     assert result["rows"] == []
     assert len(result["unmatched_map_names"]) == 2
+
+
+
+def test_join_admin1_estimates_excludes_duplicate_boundary_names():
+    feature = {
+        "type": "Feature",
+        "properties": {"shapeName": "Central"},
+        "geometry": _geojson()["features"][0]["geometry"],
+    }
+    geojson = {"type": "FeatureCollection", "features":[feature, dict(feature)]}
+    units = [{"id": "10", "name": "Central"}]
+    result = spatial.join_admin1_estimates_to_geojson(
+        geojson, units, [{"admin1_id":"10","year":2021,"value":4.0}]
+    )
+    assert result["matched_units"] == 0
+    assert result["rows"] == []
+    assert result["unmatched_map_names"] == ["Central"]
+
+
+def test_join_admin1_estimates_excludes_non_finite_values():
+    geojson = {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "properties": {"shapeName": "Nairobi"},
+            "geometry": _geojson()["features"][0]["geometry"],
+        }],
+    }
+    result = spatial.join_admin1_estimates_to_geojson(
+        geojson, [{"id":"1","name":"Nairobi"}],
+        [{"admin1_id":"1","year":2022,"value":float("nan")}],
+    )
+    assert result["matched_units"] == 1
+    assert result["rows"] == []
