@@ -193,3 +193,33 @@ def test_join_admin1_estimates_excludes_non_finite_values():
     )
     assert result["matched_units"] == 1
     assert result["rows"] == []
+
+
+def test_admin1_year_coverage_counts_distinct_units_and_computes_percentage():
+    rows = [
+        {"year": 2024, "map_admin1_id": "1", "value": 10},
+        {"year": 2024, "map_admin1_id": "1", "value": 11},
+        {"year": 2024, "map_admin1_id": "2", "value": 20},
+        {"year": 2025, "map_admin1_id": "1", "value": 12},
+        {"year": 2025, "map_admin1_id": "3", "value": None},
+    ]
+    result = spatial.admin1_year_coverage(rows, total_matched_units=4)
+    assert result == [
+        {"year": 2024, "observed_units": 2, "total_matched_units": 4, "coverage_pct": 50.0},
+        {"year": 2025, "observed_units": 1, "total_matched_units": 4, "coverage_pct": 25.0},
+    ]
+
+
+def test_admin1_year_coverage_ignores_invalid_year_ids_and_non_finite_values():
+    rows = [
+        {"year": "bad", "map_admin1_id": "1", "value": 1},
+        {"year": 2024, "map_admin1_id": "", "value": 1},
+        {"year": 2024, "map_admin1_id": "2", "value": float("nan")},
+        {"year": 2024, "map_admin1_id": "3", "value": float("inf")},
+    ]
+    assert spatial.admin1_year_coverage(rows, 4) == []
+
+
+def test_admin1_year_coverage_rejects_negative_boundary_count():
+    with pytest.raises(ValueError, match="cannot be negative"):
+        spatial.admin1_year_coverage([], -1)
