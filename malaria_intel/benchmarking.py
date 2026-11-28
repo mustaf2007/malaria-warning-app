@@ -77,9 +77,12 @@ def benchmark_coverage(
         data = data[data["year"].isin([int(year) for year in years])]
     if data.empty:
         return pd.DataFrame(columns=["year", "countries", "observations", "sources"])
-    return (
-        data.groupby("year", as_index=False)
-        .agg(countries=("iso3", "nunique"), observations=("value", "size"), sources=("source", "nunique"))
-        .sort_values("year")
-        .reset_index(drop=True)
+    # The core observations frame uses categoricals to reduce memory. Group only
+    # observed year groups and build the result from the grouped index explicitly;
+    # this avoids categorical cartesian expansion in pandas groupby operations.
+    grouped = data.groupby("year", observed=True, sort=True).agg(
+        countries=("iso3", "nunique"),
+        observations=("value", "size"),
+        sources=("source", "nunique"),
     )
+    return grouped.reset_index().sort_values("year").reset_index(drop=True)
