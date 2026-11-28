@@ -135,6 +135,26 @@ def test_data_quality_tables_report_missing_zero_and_freshness():
     assert result["coverage"].set_index("iso3").loc["SOM", "INC"] == 1
 
 
+
+def test_data_quality_tables_handle_missing_categorical_source_after_compaction():
+    from malaria_intel.analytics import build_data_quality_tables
+
+    frame = pd.DataFrame([
+        {"iso3": "SOM", "country": "Somalia", "year": 2024, "indicator_code": "INC", "value": 12.0, "source": "WHO"},
+        {"iso3": "KEN", "country": "Kenya", "year": 2024, "indicator_code": "INC", "value": None, "source": None},
+        {"iso3": "UGA", "country": "Uganda", "year": 2023, "indicator_code": "INC", "value": 8.0, "source": "WHO"},
+        {"iso3": "ETH", "country": "Ethiopia", "year": 2023, "indicator_code": "INC", "value": 9.0, "source": None},
+    ])
+    compact_observations(frame)
+    assert str(frame["source"].dtype) == "category"
+
+    result = build_data_quality_tables(frame, current_year=2026)
+    source_rows = result["sources"].set_index("source")
+    assert "Unknown source" in source_rows.index
+    assert source_rows.loc["Unknown source", "rows_received"] == 2
+    assert result["overall"].iloc[0]["sources"] == 2
+
+
 def test_data_quality_tables_empty_frame_returns_empty_tables():
     from malaria_intel.analytics import build_data_quality_tables
 
