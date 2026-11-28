@@ -144,6 +144,8 @@ def test_data_quality_tables_handle_missing_categorical_source_after_compaction(
         {"iso3": "KEN", "country": "Kenya", "year": 2024, "indicator_code": "INC", "value": None, "source": None},
         {"iso3": "UGA", "country": "Uganda", "year": 2023, "indicator_code": "INC", "value": 8.0, "source": "WHO"},
         {"iso3": "ETH", "country": "Ethiopia", "year": 2023, "indicator_code": "INC", "value": 9.0, "source": None},
+        {"iso3": "RWA", "country": "Rwanda", "year": 2022, "indicator_code": "INC", "value": 7.0, "source": "WHO"},
+        {"iso3": "TZA", "country": "Tanzania", "year": 2022, "indicator_code": "INC", "value": 6.0, "source": None},
     ])
     compact_observations(frame)
     assert str(frame["source"].dtype) == "category"
@@ -151,7 +153,7 @@ def test_data_quality_tables_handle_missing_categorical_source_after_compaction(
     result = build_data_quality_tables(frame, current_year=2026)
     source_rows = result["sources"].set_index("source")
     assert "Unknown source" in source_rows.index
-    assert source_rows.loc["Unknown source", "rows_received"] == 2
+    assert source_rows.loc["Unknown source", "rows_received"] == 3
     assert result["overall"].iloc[0]["sources"] == 2
 
 
