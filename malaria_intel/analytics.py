@@ -57,6 +57,41 @@ def validate_observations(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, 
     return clean, quality
 
 
+def compact_observations(frame: pd.DataFrame) -> pd.DataFrame:
+    """Reduce dataframe memory without changing epidemiological values or row grain.
+
+    Repeated text dimensions are stored as categoricals and whole-number years use
+    int16 where safe. Indicator values remain float64 to avoid precision loss.
+    The supplied frame is compacted in place to avoid creating another full copy.
+    """
+    if frame.empty:
+        return frame
+
+    if "year" in frame.columns:
+        years = pd.to_numeric(frame["year"], errors="coerce")
+        if years.notna().all() and years.mod(1).eq(0).all():
+            minimum, maximum = int(years.min()), int(years.max())
+            if -32768 <= minimum and maximum <= 32767:
+                frame["year"] = years.astype("int16")
+
+    text_columns = (
+        "iso3", "country", "indicator_code", "source", "source_url",
+        "last_updated",
+    )
+    row_count = len(frame)
+    for column in text_columns:
+        if column not in frame.columns:
+            continue
+        values = frame[column]
+        if not (pd.api.types.is_object_dtype(values.dtype)
+                or pd.api.types.is_string_dtype(values.dtype)):
+            continue
+        unique_count = int(values.nunique(dropna=False))
+        if unique_count < row_count * 0.5 and unique_count <= 10000:
+            frame[column] = values.astype("category")
+    return frame
+
+
 def filter_observations(frame: pd.DataFrame, indicator: str | None = None, countries: list[str] | None = None, start_year: int | None = None, end_year: int | None = None) -> pd.DataFrame:
     result = frame.copy()
     if indicator:
