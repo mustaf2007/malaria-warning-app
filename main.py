@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.express as px
 import json
 import streamlit as st
-from malaria_intel.analytics import answer_data_question, build_data_quality_tables, compact_observations, filter_observations, forecast_linear, latest_country_values, prepare_who_observations, validate_observations, year_over_year
+from malaria_intel.analytics import answer_data_question, available_countries, build_data_quality_tables, compact_observations, filter_observations, forecast_linear, latest_country_values, prepare_who_observations, validate_observations, year_over_year
 from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS, year_range_bounds
 from malaria_intel.data_sources import DataSourceError, fetch_dashboard_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series
 from malaria_intel.spatial import fetch_country_boundary, fetch_admin1_boundaries, join_admin1_estimates_to_geojson
@@ -280,14 +280,27 @@ elif nav == "Surveillance & Trends":
     if not codes: st.info("No indicator series are loaded.")
     else:
         code=st.selectbox("Indicator",codes,format_func=label)
-        countries_pick=st.multiselect("Compare countries",sorted(raw.iso3.unique()),default=(selected_iso[:5] if selected_iso else sorted(raw.iso3.unique())[:5]),key="trend_countries")
+        countries_pick=st.multiselect("Compare countries",sorted(raw.iso3.dropna().astype(str).unique()),default=(selected_iso[:5] if selected_iso else sorted(raw.iso3.dropna().astype(str).unique())[:5]),key="trend_countries")
         trend=filter_observations(raw,indicator=code,countries=countries_pick or None,start_year=year_range[0],end_year=year_range[1])
         line_chart(trend,f"{label(code)} · country trends",label(code))
-        if not trend.empty:
-            iso=st.selectbox("Country for year-on-year analysis",sorted(trend.iso3.unique()))
+
+        # Keep the year-on-year selector independent from the chart's country selection.
+        yoy_countries=available_countries(raw,code)
+        if yoy_countries:
+            preferred_yoy_country = selected_iso if selected_iso in yoy_countries else yoy_countries[0]
+            iso=st.selectbox(
+                "Country for year-on-year analysis",
+                yoy_countries,
+                index=yoy_countries.index(preferred_yoy_country),
+                format_func=lambda x: f"{country_names.get(x,x)} ({x})",
+                key="trend_yoy_country",
+                help="Includes every country with non-missing observations for the selected indicator, independently of the countries shown in the trend chart.",
+            )
             changes=year_over_year(raw,code,iso)
             st.caption("Year-on-year changes are calculated only when observations are available for consecutive calendar years. Larger gaps are shown without a one-year change.")
             st.dataframe(changes[["year","value","year_gap","absolute_change","percent_change","change_status","source"]].rename(columns={"year":"Year","value":"Value","year_gap":"Years since prior observation","absolute_change":"Change vs prior year","percent_change":"Change (%)","change_status":"Comparison status","source":"Source"}),use_container_width=True,hide_index=True)
+        else:
+            st.info("No countries with non-missing observations are available for this indicator.")
 
 elif nav == "Spatial Intelligence":
     st.subheader("Country-level malaria geography")
