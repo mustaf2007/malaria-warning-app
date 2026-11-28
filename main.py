@@ -9,7 +9,7 @@ import streamlit as st
 from malaria_intel.analytics import answer_data_question, available_countries, build_data_quality_tables, compact_observations, filter_observations, forecast_linear, latest_country_values, prepare_who_observations, validate_observations, year_over_year
 from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS, year_range_bounds
 from malaria_intel.data_sources import DataSourceError, fetch_dashboard_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series
-from malaria_intel.spatial import fetch_country_boundary, fetch_admin1_boundaries, join_admin1_estimates_to_geojson
+from malaria_intel.spatial import fetch_country_boundary, fetch_admin1_boundaries, join_admin1_estimates_to_geojson, admin1_year_coverage
 from malaria_intel.reports import build_country_report_pdf, build_africa_report_pdf
 from malaria_intel.benchmarking import country_benchmark, benchmark_coverage
 
@@ -441,10 +441,31 @@ elif nav == "MAP Subnational Intelligence":
                         st.markdown("#### 3. Subnational spatial distribution")
                         if joined and boundary_meta and joined["matched_units"] > 0 and joined["rows"]:
                             joined_rows = pd.DataFrame(joined["rows"])
-                            map_years = sorted(joined_rows["year"].dropna().astype(int).unique().tolist())
+                            year_coverage = admin1_year_coverage(
+                                joined_rows.to_dict("records"), joined["matched_units"]
+                            )
+                            coverage_by_year = {item["year"]: item for item in year_coverage}
+                            map_years = [item["year"] for item in year_coverage]
+                            best_coverage_year = max(
+                                map_years,
+                                key=lambda year: (coverage_by_year[year]["observed_units"], year),
+                            )
                             selected_map_year = st.selectbox(
                                 "Map reference year", map_years,
-                                index=len(map_years)-1, key="map_admin1_spatial_year"
+                                index=map_years.index(best_coverage_year),
+                                format_func=lambda year: (
+                                    f"{year} · {coverage_by_year[year]['observed_units']:,}/"
+                                    f"{coverage_by_year[year]['total_matched_units']:,} units "
+                                    f"({coverage_by_year[year]['coverage_pct']:.0f}% coverage)"
+                                ),
+                                key="map_admin1_spatial_year",
+                            )
+                            selected_coverage = coverage_by_year[selected_map_year]
+                            st.caption(
+                                f"Estimates available for {selected_coverage['observed_units']:,} of "
+                                f"{selected_coverage['total_matched_units']:,} boundary-matched units "
+                                f"({selected_coverage['coverage_pct']:.1f}%) in {selected_map_year}. "
+                                "Unobserved units are left uncoloured; they are not treated as zero."
                             )
                             map_rows = joined_rows[joined_rows["year"].astype(int) == int(selected_map_year)].copy()
                             if not map_rows.empty:
@@ -578,8 +599,7 @@ elif nav == "Reports & Downloads":
                     "application/pdf", use_container_width=True,
                 )
         st.divider()
-        st.markdown("#### Africa-wide annual intelligence report")
-        st.caption("Compare country coverage and annual regional patterns across selected indicators. Regional medians are unweighted and are not continental totals or population-weighted rates.")
+        st.markdown("#### Africa-wide annual intelligence report")        st.caption("Compare country coverage and annual regional patterns across selected indicators. Regional medians are unweighted and are not continental totals or population-weighted rates.")
         africa_indicator_options = sorted(raw["indicator_code"].dropna().astype(str).unique())
         default_africa_indicators = [
             code for code in ["SH.MLR.INCD.P3", "SH.STA.MALR", "OWID:estimated-number-of-malaria-cases", "OWID:number-of-deaths-from-malaria-ghe"]
@@ -597,8 +617,7 @@ elif nav == "Reports & Downloads":
         africa_years = pd.to_numeric(raw["year"], errors="coerce").dropna()
         if africa_years.empty:
             st.warning("No usable reference years are available for the continental report.")
-        else:
-            africa_min, africa_max = int(africa_years.min()), int(africa_years.max())
+        else:            africa_min, africa_max = int(africa_years.min()), int(africa_years.max())
             africa_start = max(africa_min, min(int(year_range[0]), africa_max))
             africa_end = max(africa_start, min(int(year_range[1]), africa_max))
             africa_period = st.slider(

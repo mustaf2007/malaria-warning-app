@@ -241,3 +241,35 @@ def join_admin1_estimates_to_geojson(
         "total_map_units": len(names_by_id),
         "unmatched_map_names": sorted(names_by_id[x] for x in set(names_by_id) - matched_ids),
     }
+
+
+def admin1_year_coverage(rows: list[dict[str, Any]], total_matched_units: int) -> list[dict[str, Any]]:
+    """Summarise non-missing MAP estimate coverage by year across matched units."""
+    if total_matched_units < 0:
+        raise ValueError("Total matched units cannot be negative.")
+    counts: dict[int, set[str]] = {}
+    for row in rows:
+        try:
+            year = int(row.get("year"))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        unit_id = str(row.get("map_admin1_id") or row.get("admin1_id") or "").strip()
+        value = row.get("value")
+        if not unit_id or value is None:
+            continue
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if not math.isfinite(numeric_value):
+            continue
+        counts.setdefault(year, set()).add(unit_id)
+    return [
+        {
+            "year": year,
+            "observed_units": len(unit_ids),
+            "total_matched_units": total_matched_units,
+            "coverage_pct": (100.0 * len(unit_ids) / total_matched_units) if total_matched_units else 0.0,
+        }
+        for year, unit_ids in sorted(counts.items())
+    ]
