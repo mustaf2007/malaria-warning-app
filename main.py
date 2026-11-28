@@ -397,8 +397,10 @@ elif nav == "MAP Subnational Intelligence":
                                             )
                                             st.session_state.map_admin1_join = joined
                                             st.session_state.map_admin1_boundary_meta = boundary_data
-                                        except Exception as boundary_exc:                                            st.warning(f"Subnational boundary map unavailable; the MAP time series and table remain available. Details: {boundary_exc}")
-                                    else:                                        st.session_state.map_admin1_join = None
+                                        except Exception as boundary_exc:
+                                            st.warning(f"Subnational boundary map unavailable; the MAP time series and table remain available. Details: {boundary_exc}")
+                                    else:
+                                        st.session_state.map_admin1_join = None
                                         st.session_state.map_admin1_boundary_meta = None
                                     st.session_state.map_result = result
                                     st.session_state.map_context = {
