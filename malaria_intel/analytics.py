@@ -164,7 +164,7 @@ def build_data_quality_tables(
     data["value"] = pd.to_numeric(data["value"], errors="coerce")
     data["iso3"] = data["iso3"].astype(str).str.upper().str.strip()
     data["indicator_code"] = data["indicator_code"].astype(str)
-    # Convert categoricals to pandas StringDtype before filling: fillna rejects\n    # values that are not already registered category labels.\n    data["source"] = data["source"].astype("string").fillna("Unknown source").astype(str)
+    # Categorical columns require new labels to be registered before fillna.\n    source = data["source"]\n    if isinstance(source.dtype, pd.CategoricalDtype):\n        if "Unknown source" not in source.cat.categories:\n            source = source.cat.add_categories(["Unknown source"])\n        data["source"] = source.fillna("Unknown source")\n    else:\n        data["source"] = source.astype("string").fillna("Unknown source").astype(str)
     data = data.dropna(subset=["year", "indicator_code", "iso3"])
     data["year"] = data["year"].astype(int)
     reference_year = int(current_year if current_year is not None else pd.Timestamp.now(tz="UTC").year)
