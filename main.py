@@ -30,10 +30,10 @@ def who_catalogue():
 @st.cache_data(ttl=86400, max_entries=1, show_spinner=False)
 def map_releases():
     return fetch_map_releases()
-@st.cache_data(ttl=86400, max_entries=4, show_spinner=False)
+@st.cache_data(ttl=86400, max_entries=2, show_spinner=False)
 def map_admin_units(iso3, admin_version):
     return fetch_map_admin1(iso3, admin_version)
-@st.cache_data(ttl=86400, max_entries=4, show_spinner=False)
+@st.cache_data(ttl=86400, max_entries=2, show_spinner=False)
 def map_series(metric, version, level, iso3, admin_id, stat):
     return fetch_map_series(metric, version, level, iso3=iso3, admin_unit_id=admin_id, stat=stat)
 @st.cache_data(ttl=86400, max_entries=2, show_spinner=False)
@@ -99,8 +99,10 @@ raw = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["iso3","country","ye
 # If country metadata is temporarily unavailable, preserve names already carried by observations.
 if not country_names and not raw.empty:
     country_names = (raw.dropna(subset=["iso3"]).drop_duplicates("iso3").set_index("iso3")["country"].astype(str).to_dict())
-if countries and not raw.empty:
-    raw = raw[raw["iso3"].isin(country_names)].copy()
+if countries and not raw.empty and not raw["iso3"].isin(country_names).all():
+    # Avoid duplicating the full observations table when all rows already belong to
+    # the supported African country set (the normal production case).
+    raw = raw.loc[raw["iso3"].isin(country_names)]
 if st.session_state.get("who_rows"):
     raw = pd.concat([raw, pd.DataFrame(st.session_state.who_rows)], ignore_index=True)
 st.sidebar.markdown("### Explore the platform")
