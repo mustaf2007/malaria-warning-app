@@ -197,8 +197,7 @@ elif nav == "Country Intelligence":
         iso = st.selectbox("Country",sorted(raw.iso3.unique()),format_func=lambda x:f"{country_names.get(x,x)} ({x})")
         prof = raw[(raw.iso3==iso)&raw.value.notna()].sort_values("year")
         st.markdown(f"### {country_names.get(iso,iso)}")
-        for code in codes:
-            series = prof[prof.indicator_code==code]
+        for code in codes:            series = prof[prof.indicator_code==code]
             if not series.empty:
                 latest_year = int(series["year"].max())
                 latest_rows = series[series["year"] == latest_year].sort_values(["source", "value"])
@@ -397,8 +396,7 @@ elif nav == "MAP Subnational Intelligence":
                                             )
                                             st.session_state.map_admin1_join = joined
                                             st.session_state.map_admin1_boundary_meta = boundary_data
-                                        except Exception as boundary_exc:
-                                            st.warning(f"Subnational boundary map unavailable; the MAP time series and table remain available. Details: {boundary_exc}")
+                                        except Exception as boundary_exc:                                            st.warning(f"Subnational boundary map unavailable; the MAP time series and table remain available. Details: {boundary_exc}")
                                     else:
                                         st.session_state.map_admin1_join = None
                                         st.session_state.map_admin1_boundary_meta = None
@@ -441,10 +439,31 @@ elif nav == "MAP Subnational Intelligence":
                         st.markdown("#### 3. Subnational spatial distribution")
                         if joined and boundary_meta and joined["matched_units"] > 0 and joined["rows"]:
                             joined_rows = pd.DataFrame(joined["rows"])
-                            map_years = sorted(joined_rows["year"].dropna().astype(int).unique().tolist())
+                            year_coverage = admin1_year_coverage(
+                                joined_rows.to_dict("records"), joined["matched_units"]
+                            )
+                            coverage_by_year = {item["year"]: item for item in year_coverage}
+                            map_years = [item["year"] for item in year_coverage]
+                            best_coverage_year = max(
+                                map_years,
+                                key=lambda year: (coverage_by_year[year]["observed_units"], year),
+                            )
                             selected_map_year = st.selectbox(
                                 "Map reference year", map_years,
-                                index=len(map_years)-1, key="map_admin1_spatial_year"
+                                index=map_years.index(best_coverage_year),
+                                format_func=lambda year: (
+                                    f"{year} · {coverage_by_year[year]['observed_units']:,}/"
+                                    f"{coverage_by_year[year]['total_matched_units']:,} units "
+                                    f"({coverage_by_year[year]['coverage_pct']:.0f}% coverage)"
+                                ),
+                                key="map_admin1_spatial_year",
+                            )
+                            selected_coverage = coverage_by_year[selected_map_year]
+                            st.caption(
+                                f"Estimates available for {selected_coverage['observed_units']:,} of "
+                                f"{selected_coverage['total_matched_units']:,} boundary-matched units "
+                                f"({selected_coverage['coverage_pct']:.1f}%) in {selected_map_year}. "
+                                "Unobserved units are left uncoloured; they are not treated as zero."
                             )
                             map_rows = joined_rows[joined_rows["year"].astype(int) == int(selected_map_year)].copy()
                             if not map_rows.empty:
@@ -597,8 +616,7 @@ elif nav == "Reports & Downloads":
         africa_years = pd.to_numeric(raw["year"], errors="coerce").dropna()
         if africa_years.empty:
             st.warning("No usable reference years are available for the continental report.")
-        else:
-            africa_min, africa_max = int(africa_years.min()), int(africa_years.max())
+        else:            africa_min, africa_max = int(africa_years.min()), int(africa_years.max())
             africa_start = max(africa_min, min(int(year_range[0]), africa_max))
             africa_end = max(africa_start, min(int(year_range[1]), africa_max))
             africa_period = st.slider(
