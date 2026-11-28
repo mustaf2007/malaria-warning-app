@@ -197,7 +197,9 @@ elif nav == "Country Intelligence":
         iso = st.selectbox("Country",sorted(raw.iso3.unique()),format_func=lambda x:f"{country_names.get(x,x)} ({x})")
         prof = raw[(raw.iso3==iso)&raw.value.notna()].sort_values("year")
         st.markdown(f"### {country_names.get(iso,iso)}")
-        for code in codes:            series = prof[prof.indicator_code==code]            if not series.empty:
+        for code in codes:
+            series = prof[prof.indicator_code==code]
+            if not series.empty:
                 latest_year = int(series["year"].max())
                 latest_rows = series[series["year"] == latest_year].sort_values(["source", "value"])
                 if len(latest_rows) == 1:
