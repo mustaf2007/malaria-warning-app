@@ -38,7 +38,10 @@ def country_benchmark(
     if data.empty:
         raise ValueError(f"No comparable country observations are available for {indicator} in {int(reference_year)}.")
     result = (
-        data.groupby(["iso3", "country"], as_index=False)
+        # Country labels are categorical in the compacted production frame.
+        # observed=True prevents pandas from materialising unused category combinations
+        # (e.g. one selected country expanded across every country label in the dataset).
+        data.groupby(["iso3", "country"], as_index=False, observed=True)
         .agg(
             value=("value", "median"),
             source_count=("source", "nunique"),
