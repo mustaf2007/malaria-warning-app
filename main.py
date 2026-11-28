@@ -6,9 +6,9 @@ import pandas as pd
 import plotly.express as px
 import json
 import streamlit as st
-from malaria_intel.analytics import answer_data_question, build_data_quality_tables, filter_observations, forecast_linear, latest_country_values, prepare_who_observations, validate_observations, year_over_year
+from malaria_intel.analytics import answer_data_question, build_data_quality_tables, compact_observations, filter_observations, forecast_linear, latest_country_values, prepare_who_observations, validate_observations, year_over_year
 from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS, year_range_bounds
-from malaria_intel.data_sources import DataSourceError, fetch_dashboard_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series, fetch_map_wms_preview, resolve_map_wms_layer, map_wms_time_for_year
+from malaria_intel.data_sources import DataSourceError, fetch_dashboard_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series
 from malaria_intel.spatial import fetch_country_boundary, fetch_admin1_boundaries, join_admin1_estimates_to_geojson
 from malaria_intel.reports import build_country_report_pdf, build_africa_report_pdf
 from malaria_intel.benchmarking import country_benchmark, benchmark_coverage
@@ -20,32 +20,26 @@ THEMES = {
  "Light": ("#F4F7F8","#FFFFFF","#087F69","#172B2A","#617472"),
  "Dark": ("#101418","#1B242B","#5ED6C0","#F1F5F4","#AAB8B5"),
 }
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=900, max_entries=2, show_spinner=False)
 def load_data(start, end):
     # Each provider is isolated: a temporary outage must not discard data from other sources.
     return fetch_dashboard_bundle(start, end)
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=86400, max_entries=1, show_spinner=False)
 def who_catalogue():
     return discover_who_malaria_indicators()
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=86400, max_entries=1, show_spinner=False)
 def map_releases():
     return fetch_map_releases()
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=86400, max_entries=2, show_spinner=False)
 def map_admin_units(iso3, admin_version):
     return fetch_map_admin1(iso3, admin_version)
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=86400, max_entries=2, show_spinner=False)
 def map_series(metric, version, level, iso3, admin_id, stat):
     return fetch_map_series(metric, version, level, iso3=iso3, admin_unit_id=admin_id, stat=stat)
-@st.cache_data(ttl=86400, show_spinner=False)
-def map_raster_preview(layer_ref, year):
-    return fetch_map_wms_preview(layer_ref, int(year) if year is not None else None)
-@st.cache_data(ttl=86400, show_spinner=False)
-def map_wms_layer(layer_ref):
-    return resolve_map_wms_layer(layer_ref)
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=86400, max_entries=2, show_spinner=False)
 def map_country_boundary(iso3):
     return fetch_country_boundary(iso3)
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=86400, max_entries=1, show_spinner=False)
 def map_admin1_boundary(iso3):
     return fetch_admin1_boundaries(iso3)
 def label(code):
@@ -71,16 +65,28 @@ with st.sidebar:
     theme_name = st.selectbox("Appearance", list(THEMES))
     bg,panel,accent,fg,muted = THEMES[theme_name]
     if st.button("↻ Refresh public data", use_container_width=True):
-        load_data.clear(); who_catalogue.clear(); map_releases.clear(); map_admin_units.clear(); map_series.clear(); map_raster_preview.clear(); map_wms_layer.clear(); map_country_boundary.clear(); map_admin1_boundary.clear(); st.rerun()
-    st.caption("Cache policy: core country observations 15 minutes; WHO catalogue and MAP reference/spatial data up to 24 hours.")
+        load_data.clear(); who_catalogue.clear(); map_releases.clear(); map_admin_units.clear(); map_series.clear(); map_country_boundary.clear(); map_admin1_boundary.clear(); st.rerun()
+    st.caption("Cache policy: short-lived core observations and bounded entries for larger reference/spatial datasets.")
 st.markdown(f"""<style>
-.stApp{{background:{bg};color:{fg}}}[data-testid="stSidebar"]{{background:{panel}}}
-[data-testid="stMetric"]{{background:{panel};border:1px solid rgba(130,170,160,.22);padding:15px;border-radius:14px}}
-[data-testid="stMetricLabel"] p{{color:{muted}!important}}[data-testid="stMetricValue"]{{color:{fg}!important}}
-.ami-hero{{padding:24px 28px;border-radius:18px;background:linear-gradient(120deg,{panel},rgba(20,85,70,.4));border:1px solid rgba(130,170,160,.2);margin-bottom:18px}}
-.ami-eyebrow{{color:{accent};text-transform:uppercase;letter-spacing:.14em;font-size:.72rem;font-weight:700}}
+.stApp{{background:{bg};color:{fg}}}
+[data-testid="stSidebar"]{{background:{panel};border-right:1px solid rgba(130,170,160,.18)}}
+[data-testid="stMetric"]{{background:{panel};border:1px solid rgba(130,170,160,.24);padding:16px 17px;border-radius:15px;box-shadow:0 5px 18px rgba(0,0,0,.06)}}
+[data-testid="stMetricLabel"] p{{color:{muted}!important;font-size:.82rem}}
+[data-testid="stMetricValue"]{{color:{fg}!important;font-weight:700}}
+[data-testid="stButton"] button,[data-testid="stDownloadButton"] button{{border-radius:10px;font-weight:600;min-height:2.55rem}}
+[data-testid="stDataFrame"]{{border:1px solid rgba(130,170,160,.18);border-radius:12px;overflow:hidden}}
+[data-testid="stPlotlyChart"]{{border:1px solid rgba(130,170,160,.14);border-radius:14px;padding:5px;background:{panel}}}
+.ami-hero{{position:relative;overflow:hidden;padding:30px 32px;border-radius:20px;background:linear-gradient(118deg,{panel} 0%,rgba(20,85,70,.52) 72%,rgba(20,85,70,.2) 100%);border:1px solid rgba(130,170,160,.25);margin:4px 0 20px;box-shadow:0 12px 32px rgba(0,0,0,.10)}}
+.ami-eyebrow{{color:{accent};text-transform:uppercase;letter-spacing:.16em;font-size:.72rem;font-weight:800;margin-bottom:8px}}
+.ami-hero h1{{font-size:clamp(1.8rem,3.4vw,2.65rem);line-height:1.12;margin:0 0 10px;color:{fg}}}
+.ami-lede{{color:{muted};font-size:1.02rem;max-width:850px;line-height:1.55}}
+.ami-pill-row{{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}}
+.ami-pill{{display:inline-block;padding:6px 11px;border:1px solid rgba(150,190,180,.28);border-radius:999px;color:{fg};font-size:.78rem;background:rgba(120,160,150,.09)}}
+.ami-section-note{{color:{muted};font-size:.9rem;margin-top:-5px;margin-bottom:14px}}
+[data-testid="stSidebar"] [role="radiogroup"]{{gap:3px}}
+[data-testid="stSidebar"] [role="radiogroup"] label{{padding:5px 8px;border-radius:8px}}
+@media(max-width:700px){{.ami-hero{{padding:22px 20px}}}}
 </style>""", unsafe_allow_html=True)
-st.markdown(f'<div class="ami-hero"><div class="ami-eyebrow">Continental public-health intelligence</div><h1>🦟 {APP_NAME}</h1><div style="color:{muted}">Evidence-led malaria burden, trends, interventions and country comparisons across Africa.</div></div>', unsafe_allow_html=True)
 
 with st.spinner("Connecting to public open-data sources…"):
     try:
@@ -93,27 +99,47 @@ raw = pd.DataFrame(rows) if rows else pd.DataFrame(columns=["iso3","country","ye
 # If country metadata is temporarily unavailable, preserve names already carried by observations.
 if not country_names and not raw.empty:
     country_names = (raw.dropna(subset=["iso3"]).drop_duplicates("iso3").set_index("iso3")["country"].astype(str).to_dict())
-if countries and not raw.empty:
-    raw = raw[raw["iso3"].isin(country_names)].copy()
+if countries and not raw.empty and not raw["iso3"].isin(country_names).all():
+    # Avoid duplicating the full observations table when all rows already belong to
+    # the supported African country set (the normal production case).
+    raw = raw.loc[raw["iso3"].isin(country_names)]
 if st.session_state.get("who_rows"):
     raw = pd.concat([raw, pd.DataFrame(st.session_state.who_rows)], ignore_index=True)
+st.sidebar.markdown("### Explore the platform")
+st.sidebar.caption("Move from the continental overview to country evidence, spatial analysis and reports.")
+nav = st.sidebar.radio("WORKSPACES", [
+ "Executive Overview",
+ "Country Intelligence",
+ "Country Benchmarking",
+ "Surveillance & Trends",
+ "Spatial Intelligence",
+ "Prevention & Health Systems",
+ "MAP Subnational Intelligence",
+ "Exploratory Forecasts",
+ "AI Malaria Analyst",
+ "Reports & Downloads",
+ "Data Quality & Sources"
+], label_visibility="collapsed")
+
 with st.sidebar:
-    st.markdown("### Analysis filters")
-    iso_options = [c["iso3"] for c in countries] or sorted(raw.get("iso3",pd.Series(dtype=str)).dropna().unique())
-    # Start with the complete African country set; users can narrow it in the multiselect.
-    selected_iso = st.multiselect("Countries", iso_options, default=iso_options)
-    years = sorted(raw["year"].dropna().unique().tolist()) if not raw.empty else []
-    year_min, year_max = year_range_bounds(years)
-    # Keep the full requested analysis window selectable even when sources have gaps.
-    year_range = st.slider(
-        "Reference period",
-        int(year_min),
-        int(year_max),
-        (int(DEFAULT_START_YEAR), int(DEFAULT_END_YEAR)),
-        step=1,
-        help="The filter spans 1960 through the current year. Sources contribute only the years they actually publish.",
-    )
-    upload = st.file_uploader("Upload supplementary CSV", type=["csv"], help="Required columns: iso3,country,year,indicator_code,value,source. Session-only.")
+    with st.expander("Analysis filters", expanded=False):
+        iso_options = [c["iso3"] for c in countries] or sorted(raw.get("iso3",pd.Series(dtype=str)).dropna().unique())
+        # Start with the complete African country set; users can narrow it in the multiselect.
+        selected_iso = st.multiselect("Countries", iso_options, default=iso_options)
+        years = sorted(raw["year"].dropna().unique().tolist()) if not raw.empty else []
+        year_min, year_max = year_range_bounds(years)
+        # Keep the full requested analysis window selectable even when sources have gaps.
+        year_range = st.slider(
+            "Reference period",
+            int(year_min),
+            int(year_max),
+            (int(DEFAULT_START_YEAR), int(DEFAULT_END_YEAR)),
+            step=1,
+            help="The filter spans 1960 through the current year. Sources contribute only the years they actually publish.",
+        )
+    with st.expander("Supplementary data", expanded=False):
+        upload = st.file_uploader("Upload CSV", type=["csv"], max_upload_size=25, help="Maximum 25 MB. Required columns: iso3,country,year,indicator_code,value,source. Session-only.")
+        st.caption("Files are used for this session only.")
 if upload is not None:
     try:
         extra = pd.read_csv(upload)
@@ -121,12 +147,12 @@ if upload is not None:
         if "source_url" not in extra: extra["source_url"] = "User-provided file"
         extra,_ = validate_observations(extra)
         raw = pd.concat([raw,extra],ignore_index=True)
-        raw,_ = validate_observations(raw)
         st.sidebar.success(f"Added {len(extra):,} session rows.")
     except Exception as exc:
         st.sidebar.error(f"Upload rejected: {exc}")
 if not raw.empty:
     raw, quality = validate_observations(raw)
+    raw = compact_observations(raw)
 else:
     quality = {"rows":0,"missing_values":0,"invalid_rows_removed":0,"duplicate_keys_removed":0,"conflicting_keys_excluded":0,"conflicting_rows_excluded":0,"countries":0,"indicators":0,"years":0}
 if load_error:
@@ -135,11 +161,11 @@ elif not countries:
     st.warning("Country metadata is temporarily unavailable. Country filters are using country codes/names present in the loaded observations.")
 if not raw.empty and not any(status.get("status") == "loaded" for status in statuses):
     st.warning("No source currently reports a successful load. Try Refresh public data in the sidebar.")
-nav = st.sidebar.radio("WORKSPACES", [
- "Executive Overview","Country Intelligence","Country Benchmarking","Surveillance & Trends","Spatial Intelligence",
- "Prevention & Health Systems","MAP Subnational Intelligence","MAP 5 km Raster Explorer","Forecasting & Risk Analysis","AI Malaria Analyst",
- "Reports & Downloads","Data Quality & Sources"])
 view = filter_observations(raw,countries=selected_iso or None,start_year=year_range[0],end_year=year_range[1]) if not raw.empty else raw
+
+if nav == "Executive Overview":
+    st.markdown(f'<section class="ami-hero"><div class="ami-eyebrow">AFRICA-WIDE · OPEN DATA · EVIDENCE-LED</div><h1>🦟 {APP_NAME}</h1><div class="ami-lede">Open-data intelligence for understanding malaria burden, monitoring long-term trends, comparing countries and exploring prevention evidence across Africa.</div><div class="ami-pill-row"><span class="ami-pill">Country profiles & comparisons</span><span class="ami-pill">Spatial & subnational evidence</span><span class="ami-pill">Prevention & health systems</span><span class="ami-pill">Reports & downloads</span></div></section>', unsafe_allow_html=True)
+
 codes = sorted(raw["indicator_code"].dropna().unique()) if not raw.empty else []
 malaria_codes = [c for c in codes if c.startswith("SH.MLR") or c == "SH.STA.MALR" or c.startswith("OWID:")]
 default_code = next((c for c in ["SH.MLR.INCD.P3","SH.MLR.CASES","SH.MLR.DEATHS","SH.MLR.MORT"] if c in codes), codes[0] if codes else None)
@@ -250,7 +276,7 @@ elif nav == "Country Benchmarking":
                 st.warning(str(exc))
 
 elif nav == "Surveillance & Trends":
-    st.subheader("Surveillance and epidemiological trends")
+    st.subheader("Trends and year-on-year analysis")
     if not codes: st.info("No indicator series are loaded.")
     else:
         code=st.selectbox("Indicator",codes,format_func=label)
@@ -264,7 +290,7 @@ elif nav == "Surveillance & Trends":
             st.dataframe(changes[["year","value","year_gap","absolute_change","percent_change","change_status","source"]].rename(columns={"year":"Year","value":"Value","year_gap":"Years since prior observation","absolute_change":"Change vs prior year","percent_change":"Change (%)","change_status":"Comparison status","source":"Source"}),use_container_width=True,hide_index=True)
 
 elif nav == "Spatial Intelligence":
-    st.subheader("Geographic distribution")
+    st.subheader("Country-level malaria geography")
     if not codes: st.info("No spatial observations are loaded.")
     else:
         code=st.selectbox("Map indicator",codes,format_func=label)
@@ -454,142 +480,8 @@ elif nav == "MAP Subnational Intelligence":
     st.markdown("**Source and attribution:** Malaria Atlas Project, selected dataset and release. Reuse MAP maps under CC BY 3.0 with the dataset-specific citation and attribution. Third-party source data retains its own licence and citation.")
 
 
-elif nav == "MAP 5 km Raster Explorer":
-    st.subheader("MAP · high-resolution malaria spatial intelligence")
-    st.caption("Interactive WMS map of MAP's published modelled raster layers. Grid estimates are approximately 5 km; they are not live case notifications.")
-    st.info("Use this explorer to inspect the spatial distribution of modelled malaria burden and intervention coverage. A mapped estimate does not establish an active outbreak or the risk to an individual.")
-    try:
-        releases = map_releases()
-        if not releases:
-            st.warning("MAP release metadata is unavailable. Try refreshing public data.")
-        else:
-            raster_release = st.selectbox(
-                "Raster data release",
-                releases,
-                format_func=lambda r: f"{r['version']} · through {r['data_end_year']}{' · provisional' if r['provisional'] else ''}",
-                key="map_raster_release",
-            )
-            raster_refs = raster_release.get("geo_server_refs", {})
-            raster_catalogue = {
-                "pfIncidenceRate": "P. falciparum clinical incidence rate",
-                "pfpr": "P. falciparum parasite prevalence (PfPR2-10)",
-                "pfMortalityRate": "P. falciparum mortality rate",
-                "pvIncidenceRate": "P. vivax clinical incidence rate",
-                "pvpr": "P. vivax parasite prevalence",
-                "itnUse": "Population sleeping under insecticide-treated nets",
-                "itnAccess": "Population with household access to insecticide-treated nets",
-                "itnUseRate": "ITN use among people with household access",
-                "irsCoverage": "Indoor residual spraying coverage",
-            }
-            available_rasters = {
-                key: (raster_catalogue[key], str(raster_refs.get(key, "")).strip())
-                for key in raster_catalogue if raster_refs.get(key)
-            }
-            if not available_rasters:
-                st.warning("The selected MAP release does not advertise supported raster layers.")
-            else:
-                selected_raster_key = st.selectbox(
-                    "Raster layer", list(available_rasters),
-                    format_func=lambda key: available_rasters[key][0],
-                    key="map_raster_metric",
-                )
-                raster_label, raster_layer_ref = available_rasters[selected_raster_key]
-                focus_country_iso = st.selectbox(
-                    "Focus country", sorted(country_names),
-                    index=sorted(country_names).index("SOM") if "SOM" in country_names else 0,
-                    format_func=lambda iso: f"{country_names.get(iso, iso)} ({iso})",
-                    key="map_raster_country",
-                )
-                try:
-                    layer_info = map_wms_layer(raster_layer_ref)
-                except Exception as exc:
-                    st.error(f"MAP raster catalogue could not resolve this layer: {exc}")
-                    layer_info = None
-                if layer_info:
-                    min_year = layer_info.get("min_year")
-                    max_year = layer_info.get("max_year")
-                    if min_year is not None and max_year is not None:
-                        year_options = layer_info.get("available_years") or list(range(int(min_year), int(max_year) + 1))
-                        year_value = st.selectbox(
-                            "Reference year", year_options, index=len(year_options) - 1,
-                            key="map_raster_year",
-                        )
-                    else:
-                        year_value = None
-                        st.caption("This raster is static; no year selector is available.")
-                    if raster_release.get("provisional"):
-                        st.warning("This MAP release is provisional. Confirm the release status before citing its estimates.")
-                    if st.button("Render 5 km spatial layer", type="primary"):
-                        try:
-                            with st.spinner("Loading the selected country boundary and MAP raster preview…"):
-                                boundary = map_country_boundary(focus_country_iso)
-                                preview = map_raster_preview(raster_layer_ref, year_value)
-                                st.session_state.map_raster_context = {
-                                    "focus_country_iso": focus_country_iso,
-                                    "focus_country": country_names.get(focus_country_iso, focus_country_iso),
-                                    "boundary_geojson": boundary["geojson"],
-                                    "release": raster_release["version"],
-                                    "year": year_value,
-                                    "metric": raster_label,
-                                    "layer_ref": raster_layer_ref,
-                                    "wms_endpoint": layer_info["endpoint"],
-                                    "wms_layer": layer_info["layer"],
-                                    "wms_time": map_wms_time_for_year(layer_info, year_value),
-                                    "provisional": raster_release.get("provisional", False),
-                                }
-                                st.session_state.map_raster_png = preview
-                        except Exception as exc:
-                            st.error(f"MAP spatial layer could not be rendered: {exc}")
-                    raster_png = st.session_state.get("map_raster_png")
-                    raster_context = st.session_state.get("map_raster_context")
-                    context_matches = bool(raster_context) and raster_context.get("release") == raster_release["version"] and raster_context.get("layer_ref") == raster_layer_ref and raster_context.get("year") == year_value and raster_context.get("focus_country_iso") == focus_country_iso
-                    if raster_png and raster_context and context_matches:
-                        st.markdown("#### Africa · modelled raster surface")
-                        selected_year_label = str(raster_context["year"]) if raster_context["year"] is not None else "Static layer"
-                        st.caption(f"{raster_context['focus_country']} · {raster_context['metric']} · {selected_year_label} · MAP release {raster_context['release']}")
-                        layer_json = json.dumps(raster_context["wms_layer"])
-                        boundary_json = json.dumps(raster_context["boundary_geojson"], separators=(",", ":")).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-                        endpoint_json = json.dumps(raster_context["wms_endpoint"])
-                        time_json = json.dumps(raster_context["wms_time"])
-                        time_option = f", time:{time_json}" if raster_context["wms_time"] else ""
-                        html = f"""
-                        <div id="ami-map" style="height:650px;width:100%;border-radius:14px;overflow:hidden;"></div>
-                        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-                        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-                        <script>
-                        (function(){{
-                          const map = L.map('ami-map',{{scrollWheelZoom:true,preferCanvas:true}});
-                          const osm = L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-                            maxZoom: 9, attribution: '&copy; OpenStreetMap contributors'
-                          }}).addTo(map);
-                          const wms = L.tileLayer.wms({endpoint_json}, {{
-                            layers: {layer_json}, format:'image/png', transparent:true,
-                            version:'1.1.1', srs:'EPSG:4326'{time_option},
-                            opacity:0.78, attribution:'Malaria Atlas Project (CC BY 3.0)'
-                          }}).addTo(map);
-                          const countryBoundary = L.geoJSON({boundary_json}, {{
-                            style: {{color:'#F8C34A',weight:2.5,fill:false,opacity:0.95}}
-                          }}).addTo(map);
-                          map.fitBounds(countryBoundary.getBounds().pad(0.08));
-                          L.control.layers({{'OpenStreetMap':osm}},{{'MAP malaria raster':wms}}).addTo(map);
-                          L.control.scale({{imperial:false}}).addTo(map);
-                        }})();
-                        </script>
-                        """
-                        st.components.v1.html(html, height=670, scrolling=False)
-                        st.download_button(
-                            "Download rendered MAP raster preview · PNG",
-                            raster_png,
-                            f"map_{raster_context['release']}_{raster_context['year'] or 'static'}.png",
-                            "image/png",
-                        )
-                        st.caption("The interactive map is zoomed to the selected ADM0 country boundary. MAP raster tiles remain served by WMS; the boundary is supplied by geoBoundaries. The downloadable PNG remains an Africa-wide preview. Display resolution depends on map zoom and screen size.")
-                        st.markdown("**Attribution:** Malaria Atlas Project, selected raster layer and release. MAP maps are available under CC BY 3.0; retain dataset-specific citation details and identify adaptations. OpenStreetMap contributors provide the basemap.")
-    except Exception as exc:
-        st.error(f"MAP raster catalogue unavailable: {exc}")
-
-elif nav == "Forecasting & Risk Analysis":
-    st.subheader("Exploratory trend modelling")
+elif nav == "Exploratory Forecasts":
+    st.subheader("Explore possible future trajectories")
     st.warning("Statistical extrapolations only—not outbreak predictions, operational alerts or clinical advice. Weather, vector ecology, interventions and reporting changes are not modelled.")
     if not codes: st.info("No time series available.")
     else:
@@ -846,4 +738,4 @@ elif nav == "Data Quality & Sources":
     st.caption(f"Rendered {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}. Cache duration varies by connector; observation reference years do not indicate provider update timestamps.")
 
 st.divider()
-st.caption("Africa Malaria Intelligence · Open-data research platform · Not a real-time case surveillance system · Verify source definitions before policy use.")
+st.caption("Africa Malaria Intelligence · Open-data research and programme intelligence · Modelled estimates and reported observations are labelled separately · Not a real-time case surveillance system.")

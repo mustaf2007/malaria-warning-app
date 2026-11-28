@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 from malaria_intel.analytics import (
-    answer_data_question, filter_observations, forecast_linear,
+    answer_data_question, compact_observations, filter_observations, forecast_linear,
     latest_country_values, validate_observations, year_over_year,
 )
 
@@ -226,3 +226,36 @@ def test_prepare_who_observations_handles_empty_input():
     from malaria_intel.analytics import prepare_who_observations
 
     assert prepare_who_observations([], {"SOM": "Somalia"}) == []
+
+
+
+def test_compact_observations_reduces_memory_without_changing_values(observations):
+    frame = pd.concat([observations] * 100, ignore_index=True)
+    frame["source_url"] = "https://example.org/data"
+    original_values = frame["value"].tolist()
+    original_years = frame["year"].tolist()
+    before = int(frame.memory_usage(deep=True).sum())
+
+    compacted = compact_observations(frame)
+
+    after = int(compacted.memory_usage(deep=True).sum())
+    assert after < before
+    assert str(compacted["year"].dtype) == "int16"
+    assert str(compacted["iso3"].dtype) == "category"
+    assert str(compacted["country"].dtype) == "category"
+    assert compacted["value"].tolist() == original_values
+    assert compacted["year"].tolist() == original_years
+
+
+def test_compact_observations_keeps_large_year_range_and_empty_frames_safe():
+    frame = pd.DataFrame({
+        "year": [1960, 40000],
+        "value": [1.1234567890123, 2.0],
+        "iso3": ["SOM", "KEN"],
+        "country": ["Somalia", "Kenya"],
+    })
+    compacted = compact_observations(frame)
+    assert str(compacted["year"].dtype) != "int16"
+    assert compacted["value"].iloc[0] == 1.1234567890123
+    empty = pd.DataFrame(columns=["year", "value", "iso3"])
+    assert compact_observations(empty).empty
