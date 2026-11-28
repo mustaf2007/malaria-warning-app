@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 from malaria_intel.analytics import (
-    answer_data_question, compact_observations, filter_observations, forecast_linear,
+    answer_data_question, available_countries, compact_observations, filter_observations, forecast_linear,
     latest_country_values, validate_observations, year_over_year,
 )
 
@@ -73,6 +73,25 @@ def test_latest_country_values_preserves_multiple_sources_for_latest_year(observ
     assert set(somalia.source) == {"Test", "Second source"}
     assert set(somalia.value) == {35.0, 32.0}
 
+
+
+def test_available_countries_returns_all_countries_with_indicator_data(observations):
+    # The year-on-year selector must not inherit the chart's selected-country subset.
+    assert available_countries(observations, "SH.MLR.INCD.P3") == ["KEN", "SOM"]
+
+
+def test_available_countries_excludes_missing_values_and_other_indicators(observations):
+    extra = pd.DataFrame([
+        {"iso3":"UGA","country":"Uganda","year":2023,"indicator_code":"SH.MLR.INCD.P3","value":None,"source":"Test"},
+        {"iso3":"ETH","country":"Ethiopia","year":2023,"indicator_code":"OTHER","value":10.0,"source":"Test"},
+    ])
+    frame = pd.concat([observations, extra], ignore_index=True)
+    assert available_countries(frame, "SH.MLR.INCD.P3") == ["KEN", "SOM"]
+
+
+def test_available_countries_supports_categorical_country_codes(observations):
+    observations["iso3"] = observations["iso3"].astype("category")
+    assert available_countries(observations, "SH.MLR.INCD.P3") == ["KEN", "SOM"]
 
 def test_year_over_year(observations):
     result = year_over_year(observations, "SH.MLR.INCD.P3", "SOM")

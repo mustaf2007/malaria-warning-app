@@ -124,6 +124,22 @@ def year_over_year(frame: pd.DataFrame, indicator: str, country: str) -> pd.Data
     return data
 
 
+
+def available_countries(frame: pd.DataFrame, indicator: str) -> list[str]:
+    """Return all countries with non-missing observations for an indicator."""
+    required = {"iso3", "indicator_code", "value"}
+    missing = required - set(frame.columns)
+    if missing:
+        raise ValueError(f"Missing required columns: {', '.join(sorted(missing))}")
+    data = frame.loc[
+        (frame["indicator_code"] == indicator)
+        & frame["value"].notna()
+        & frame["iso3"].notna(),
+        "iso3",
+    ]
+    return sorted(data.astype(str).str.strip().loc[lambda values: values.ne("")].unique().tolist())
+
+
 def forecast_linear(frame: pd.DataFrame, indicator: str, country: str, horizon: int = 3) -> pd.DataFrame:
     """Exploratory linear extrapolation; not an outbreak prediction or clinical alert."""
     data = frame[(frame["indicator_code"] == indicator) & (frame["iso3"] == country) & frame["value"].notna()].sort_values("year")
