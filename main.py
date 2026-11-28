@@ -9,7 +9,7 @@ import streamlit as st
 from malaria_intel.analytics import answer_data_question, available_countries, build_data_quality_tables, compact_observations, filter_observations, forecast_linear, latest_country_values, prepare_who_observations, validate_observations, year_over_year
 from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS, year_range_bounds
 from malaria_intel.data_sources import DataSourceError, fetch_dashboard_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series
-from malaria_intel.spatial import fetch_country_boundary, fetch_admin1_boundaries, join_admin1_estimates_to_geojson
+from malaria_intel.spatial import fetch_country_boundary, fetch_admin1_boundaries, join_admin1_estimates_to_geojson, admin1_year_coverage
 from malaria_intel.reports import build_country_report_pdf, build_africa_report_pdf
 from malaria_intel.benchmarking import country_benchmark, benchmark_coverage
 
@@ -197,8 +197,7 @@ elif nav == "Country Intelligence":
         iso = st.selectbox("Country",sorted(raw.iso3.unique()),format_func=lambda x:f"{country_names.get(x,x)} ({x})")
         prof = raw[(raw.iso3==iso)&raw.value.notna()].sort_values("year")
         st.markdown(f"### {country_names.get(iso,iso)}")
-        for code in codes:            series = prof[prof.indicator_code==code]
-            if not series.empty:
+        for code in codes:            series = prof[prof.indicator_code==code]            if not series.empty:
                 latest_year = int(series["year"].max())
                 latest_rows = series[series["year"] == latest_year].sort_values(["source", "value"])
                 if len(latest_rows) == 1:
@@ -397,8 +396,7 @@ elif nav == "MAP Subnational Intelligence":
                                             st.session_state.map_admin1_join = joined
                                             st.session_state.map_admin1_boundary_meta = boundary_data
                                         except Exception as boundary_exc:                                            st.warning(f"Subnational boundary map unavailable; the MAP time series and table remain available. Details: {boundary_exc}")
-                                    else:
-                                        st.session_state.map_admin1_join = None
+                                    else:                                        st.session_state.map_admin1_join = None
                                         st.session_state.map_admin1_boundary_meta = None
                                     st.session_state.map_result = result
                                     st.session_state.map_context = {
@@ -597,8 +595,7 @@ elif nav == "Reports & Downloads":
                     "application/pdf", use_container_width=True,
                 )
         st.divider()
-        st.markdown("#### Africa-wide annual intelligence report")
-        st.caption("Compare country coverage and annual regional patterns across selected indicators. Regional medians are unweighted and are not continental totals or population-weighted rates.")
+        st.markdown("#### Africa-wide annual intelligence report")        st.caption("Compare country coverage and annual regional patterns across selected indicators. Regional medians are unweighted and are not continental totals or population-weighted rates.")
         africa_indicator_options = sorted(raw["indicator_code"].dropna().astype(str).unique())
         default_africa_indicators = [
             code for code in ["SH.MLR.INCD.P3", "SH.STA.MALR", "OWID:estimated-number-of-malaria-cases", "OWID:number-of-deaths-from-malaria-ghe"]
