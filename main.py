@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.express as px
 import json
 import streamlit as st
-from malaria_intel.analytics import answer_data_question, build_data_quality_tables, filter_observations, forecast_linear, latest_country_values, prepare_who_observations, validate_observations, year_over_year
+from malaria_intel.analytics import answer_data_question, build_data_quality_tables, compact_observations, filter_observations, forecast_linear, latest_country_values, prepare_who_observations, validate_observations, year_over_year
 from malaria_intel.config import APP_NAME, DEFAULT_START_YEAR, DEFAULT_END_YEAR, INDICATORS, SOURCE_LINKS, EXTERNAL_INDICATOR_LABELS, year_range_bounds
 from malaria_intel.data_sources import DataSourceError, fetch_dashboard_bundle, discover_who_malaria_indicators, fetch_who_gho_indicator, MAP_METRICS, fetch_map_releases, fetch_map_admin1, fetch_map_series
 from malaria_intel.spatial import fetch_country_boundary, fetch_admin1_boundaries, join_admin1_estimates_to_geojson
@@ -20,26 +20,26 @@ THEMES = {
  "Light": ("#F4F7F8","#FFFFFF","#087F69","#172B2A","#617472"),
  "Dark": ("#101418","#1B242B","#5ED6C0","#F1F5F4","#AAB8B5"),
 }
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=900, max_entries=2, show_spinner=False)
 def load_data(start, end):
     # Each provider is isolated: a temporary outage must not discard data from other sources.
     return fetch_dashboard_bundle(start, end)
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=86400, max_entries=1, show_spinner=False)
 def who_catalogue():
     return discover_who_malaria_indicators()
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=86400, max_entries=1, show_spinner=False)
 def map_releases():
     return fetch_map_releases()
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=86400, max_entries=4, show_spinner=False)
 def map_admin_units(iso3, admin_version):
     return fetch_map_admin1(iso3, admin_version)
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=86400, max_entries=4, show_spinner=False)
 def map_series(metric, version, level, iso3, admin_id, stat):
     return fetch_map_series(metric, version, level, iso3=iso3, admin_unit_id=admin_id, stat=stat)
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=86400, max_entries=2, show_spinner=False)
 def map_country_boundary(iso3):
     return fetch_country_boundary(iso3)
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=86400, max_entries=1, show_spinner=False)
 def map_admin1_boundary(iso3):
     return fetch_admin1_boundaries(iso3)
 def label(code):
@@ -66,7 +66,7 @@ with st.sidebar:
     bg,panel,accent,fg,muted = THEMES[theme_name]
     if st.button("↻ Refresh public data", use_container_width=True):
         load_data.clear(); who_catalogue.clear(); map_releases.clear(); map_admin_units.clear(); map_series.clear(); map_country_boundary.clear(); map_admin1_boundary.clear(); st.rerun()
-    st.caption("Cache policy: core country observations 15 minutes; WHO catalogue and MAP reference/spatial data up to 24 hours.")
+    st.caption("Cache policy: short-lived core observations and bounded entries for larger reference/spatial datasets.")
 st.markdown(f"""<style>
 .stApp{{background:{bg};color:{fg}}}
 [data-testid="stSidebar"]{{background:{panel};border-right:1px solid rgba(130,170,160,.18)}}
@@ -136,7 +136,7 @@ with st.sidebar:
             help="The filter spans 1960 through the current year. Sources contribute only the years they actually publish.",
         )
     with st.expander("Supplementary data", expanded=False):
-        upload = st.file_uploader("Upload CSV", type=["csv"], help="Required columns: iso3,country,year,indicator_code,value,source. Session-only.")
+        upload = st.file_uploader("Upload CSV", type=["csv"], max_upload_size=25, help="Maximum 25 MB. Required columns: iso3,country,year,indicator_code,value,source. Session-only.")
         st.caption("Files are used for this session only.")
 if upload is not None:
     try:
@@ -145,12 +145,12 @@ if upload is not None:
         if "source_url" not in extra: extra["source_url"] = "User-provided file"
         extra,_ = validate_observations(extra)
         raw = pd.concat([raw,extra],ignore_index=True)
-        raw,_ = validate_observations(raw)
         st.sidebar.success(f"Added {len(extra):,} session rows.")
     except Exception as exc:
         st.sidebar.error(f"Upload rejected: {exc}")
 if not raw.empty:
     raw, quality = validate_observations(raw)
+    raw = compact_observations(raw)
 else:
     quality = {"rows":0,"missing_values":0,"invalid_rows_removed":0,"duplicate_keys_removed":0,"conflicting_keys_excluded":0,"conflicting_rows_excluded":0,"countries":0,"indicators":0,"years":0}
 if load_error:
