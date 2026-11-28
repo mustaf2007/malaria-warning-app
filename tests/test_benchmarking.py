@@ -91,3 +91,36 @@ def test_benchmark_coverage_handles_compacted_categorical_dimensions():
     assert coverage["countries"].eq(54).all()
     assert coverage["observations"].eq(54).all()
     assert coverage["sources"].eq(2).all()
+
+
+def test_country_benchmark_handles_compacted_categorical_country_filter():
+    # Production observations retain the full country category catalogue even
+    # after filtering to one country and one reference year.
+    import string
+    from itertools import islice, product
+
+    iso3_codes = ["".join(chars) for chars in islice(product(string.ascii_uppercase, repeat=3), 54)]
+    rows = [
+        {
+            "iso3": iso3,
+            "country": f"Country {index + 1}",
+            "year": year,
+            "indicator_code": "INC",
+            "value": float(index + 1),
+            "source": "Source A",
+        }
+        for year in range(1960, 2020)
+        for index, iso3 in enumerate(iso3_codes)
+    ]
+    frame = pd.DataFrame(rows)
+    frame["year"] = frame["year"].astype("int16")
+    for column in ["iso3", "country", "indicator_code", "source"]:
+        frame[column] = frame[column].astype("category")
+
+    result = country_benchmark(frame, "INC", 2010, [iso3_codes[0]])
+
+    assert len(result) == 1
+    assert result.iloc[0]["iso3"] == iso3_codes[0]
+    assert result.iloc[0]["country"] == "Country 1"
+    assert result.iloc[0]["reference_year"] == 2010
+    assert result.iloc[0]["value"] == 1.0
